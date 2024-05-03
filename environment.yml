@@ -1,4 +1,4 @@
-name: gaussian_splatting
+name: surfel_splatting
 channels:
   - pytorch
   - conda-forge
@@ -13,5 +13,5 @@ dependencies:
   - torchvision=0.13.1
   - tqdm
   - pip:
-    - submodules/diff-gaussian-rasterization
+    - submodules/diff-surfel-rasterization
     - submodules/simple-knn

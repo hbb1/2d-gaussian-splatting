@@ -2,9 +2,6 @@
 .vscode
 output
 build
-benchmark*
-debug*
-output
 data
 *.ply
 **/PKG-INFO
@@ -16,4 +13,3 @@ data
 eval
 *.npz
 eval_*
-submodules
