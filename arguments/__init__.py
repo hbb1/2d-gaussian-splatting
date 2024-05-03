@@ -82,9 +82,9 @@ class OptimizationParams(ParamGroup):
         self.rotation_lr = 0.001
         self.percent_dense = 0.01
         self.lambda_dssim = 0.2
-        self.lambda_dist = 1000.0
+        self.lambda_dist = 100.0
         self.lambda_normal = 0.05
-        self.opacity_cull = 0.005
+        self.opacity_cull = 0.05
 
         self.densification_interval = 100
         self.opacity_reset_interval = 3000

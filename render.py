@@ -34,10 +34,12 @@ if __name__ == "__main__":
     parser.add_argument("--skip_train", action="store_true")
     parser.add_argument("--skip_test", action="store_true")
     parser.add_argument("--skip_mesh", action="store_true")
+    parser.add_argument("--quiet", action="store_true")
     parser.add_argument("--render_path", action="store_true")
-    parser.add_argument("--voxel_size", default=0.004, type=float, help='voxel size for TSDF')
-    parser.add_argument("--sdf_trunc", default=0.02, type=float, help='truncation for TSDF')
-    parser.add_argument("--depth_trunc", default=3.0, type=float, help='Max depth range for TSDF')
+    parser.add_argument("--voxel_size", default=0.004, type=float, help='Mesh: voxel size for TSDF')
+    parser.add_argument("--sdf_trunc", default=0.02, type=float, help='Mesh: truncation for TSDF')
+    parser.add_argument("--depth_trunc", default=3.0, type=float, help='Mesh: Max depth range for TSDF')
+    parser.add_argument("--num_cluster", default=10, type=int, help='Mesh: number of connected clusters to export')
     args = get_combined_args(parser)
     print("Rendering " + args.model_path)
 
@@ -58,12 +60,12 @@ if __name__ == "__main__":
         os.makedirs(train_dir, exist_ok=True)
         gaussExtractor.reconstruction(scene.getTrainCameras())
         # extract the mesh and save
-        mesh = gaussExtractor.extract_mesh_bounded(sdf_trunc=args.sdf_trunc, depth_trunc=args.depth_trunc)
+        mesh = gaussExtractor.extract_mesh_bounded(voxel_size=args.voxel_size, sdf_trunc=args.sdf_trunc, depth_trunc=args.depth_trunc)
         o3d.io.write_triangle_mesh(os.path.join(train_dir, 'fuse.ply'), mesh)
-        print("mesh saved at {}".format(os.path.join(train_dir, 'fuse.ply')))
-        # post processing the mesh
-        mesh_post = post_process_mesh(mesh, cluster_to_keep=10)
+        # post-process the mesh and save, saving the largest N clusters
+        mesh_post = post_process_mesh(mesh, cluster_to_keep=args.num_cluster)
         o3d.io.write_triangle_mesh(os.path.join(train_dir, 'fuse_post.ply'), mesh_post)
+        print("mesh saved at {}".format(os.path.join(train_dir, 'fuse.ply')))
         print("mesh post processed saved at {}".format(os.path.join(train_dir, 'fuse_post.ply')))
         gaussExtractor.clean()
 
@@ -80,7 +82,8 @@ if __name__ == "__main__":
         os.makedirs(test_dir, exist_ok=True)
         gaussExtractor.reconstruction(scene.getTestCameras())
         gaussExtractor.export_image(test_dir)
-        
+    
+    
     if args.render_path:
         print("render videos ...")
         traj_dir = os.path.join(args.model_path, 'traj', "ours_{}".format(scene.loaded_iter))
