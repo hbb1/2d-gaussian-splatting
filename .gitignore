@@ -1,0 +1,19 @@
+*.pyc
+.vscode
+output
+build
+benchmark*
+debug*
+output
+data
+*.ply
+**/PKG-INFO
+# submodules
+# eval_dtu
+**__pycache__**
+*.png
+*.out
+eval
+*.npz
+eval_*
+submodules
