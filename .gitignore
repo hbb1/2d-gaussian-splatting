@@ -13,3 +13,4 @@ data
 eval
 *.npz
 eval_*
+**/tmp

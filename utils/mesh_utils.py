@@ -8,7 +8,7 @@ from functools import partial
 import open3d as o3d
 import trimesh
 
-def post_process_mesh(mesh, cluster_to_keep=10):
+def post_process_mesh(mesh, cluster_to_keep=1000):
     """
     Post-process a mesh to filter out floaters and disconnected parts
     """
@@ -22,6 +22,7 @@ def post_process_mesh(mesh, cluster_to_keep=10):
     cluster_n_triangles = np.asarray(cluster_n_triangles)
     cluster_area = np.asarray(cluster_area)
     n_cluster = np.sort(cluster_n_triangles.copy())[-cluster_to_keep]
+    n_cluster = max(n_cluster, 50) # filter meshes smaller than 50
     triangles_to_remove = cluster_n_triangles[triangle_clusters] < n_cluster
     mesh_0.remove_triangles_by_mask(triangles_to_remove)
     mesh_0.remove_unreferenced_vertices()
@@ -44,11 +45,7 @@ def to_cam_open3d(viewpoint_stack):
         camera.extrinsic = extrinsic
         camera.intrinsic = intrinsic
         camera_traj.append(camera)
-        # rgbd_images.append(rgbd)
 
-    # camera_trajectory = o3d.camera.PinholeCameraTrajectory()
-    # camera_trajectory.parameters = camera_traj
-    # return camera_trajectory
     return camera_traj
 
 
@@ -77,15 +74,14 @@ class GaussianExtractor(object):
         self.normals = []
         self.depth_normals = []
         self.points = []
+        self.viewpoint_stack = []
 
     @torch.no_grad()
     def reconstruction(self, viewpoint_stack):
         """
         reconstruct radiance field given cameras
         """
-        self.depthmaps = []
-        self.alphamaps = []
-        self.rgbmaps = []
+        self.clean()
         self.viewpoint_stack = viewpoint_stack
         for i, viewpoint_cam in tqdm(enumerate(self.viewpoint_stack), desc="reconstruct radiance fields"):
             render_pkg = self.render(viewpoint_cam, self.gaussians)
