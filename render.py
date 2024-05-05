@@ -37,7 +37,6 @@ if __name__ == "__main__":
     parser.add_argument("--quiet", action="store_true")
     parser.add_argument("--render_path", action="store_true")
     parser.add_argument("--voxel_size", default=0.004, type=float, help='Mesh: voxel size for TSDF')
-    parser.add_argument("--sdf_trunc", default=0.02, type=float, help='Mesh: truncation for TSDF')
     parser.add_argument("--depth_trunc", default=3.0, type=float, help='Mesh: Max depth range for TSDF')
     parser.add_argument("--num_cluster", default=1000, type=int, help='Mesh: number of connected clusters to export')
     args = get_combined_args(parser)
@@ -88,7 +87,7 @@ if __name__ == "__main__":
         gaussExtractor.gaussians.active_sh_degree = 0
         gaussExtractor.reconstruction(scene.getTrainCameras())
         # extract the mesh and save
-        mesh = gaussExtractor.extract_mesh_bounded(voxel_size=args.voxel_size, sdf_trunc=args.sdf_trunc, depth_trunc=args.depth_trunc)
+        mesh = gaussExtractor.extract_mesh_bounded(voxel_size=args.voxel_size, sdf_trunc=5*args.voxel_size, depth_trunc=args.depth_trunc)
         o3d.io.write_triangle_mesh(os.path.join(train_dir, 'fuse.ply'), mesh)
         # post-process the mesh and save, saving the largest N clusters
         mesh_post = post_process_mesh(mesh, cluster_to_keep=args.num_cluster)

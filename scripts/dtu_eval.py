@@ -24,6 +24,7 @@ if not args.skip_training:
     common_args = " --quiet --test_iterations -1 --depth_ratio 1.0 -r 2 --lambda_dist 1000"
     for scene in dtu_scenes:
         source = args.dtu + "/" + scene
+        print("python train.py -s " + source + " -m " + args.output_path + "/" + scene + common_args)
         os.system("python train.py -s " + source + " -m " + args.output_path + "/" + scene + common_args)
 
 
@@ -32,6 +33,7 @@ if not args.skip_rendering:
     common_args = " --quiet --skip_train --depth_ratio 1.0 --num_cluster 1"
     for scene in dtu_scenes:
         source = args.dtu + "/" + scene
+        print("python render.py --iteration 30000 -s " + source + " -m" + args.output_path + "/" + scene + common_args)
         os.system("python render.py --iteration 30000 -s " + source + " -m" + args.output_path + "/" + scene + common_args)
 
 

@@ -6,11 +6,9 @@ data
 *.ply
 **/PKG-INFO
 # submodules
-# eval_dtu
 **__pycache__**
 *.png
 *.out
 eval
 *.npz
-eval_*
 **/tmp

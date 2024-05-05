@@ -12,8 +12,6 @@
 import os
 from argparse import ArgumentParser
 
-# mipnerf360_outdoor_scenes = ["garden"]
-# mipnerf360_indoor_scenes = ["kitchen"]
 mipnerf360_outdoor_scenes = ["bicycle", "flowers", "garden", "stump", "treehill"]
 mipnerf360_indoor_scenes = ["room", "counter", "kitchen", "bonsai"]
 # tanks_and_temples_scenes = ["truck", "train"]
@@ -64,7 +62,7 @@ if not args.skip_rendering:
     # for scene in deep_blending_scenes:
         # all_sources.append(args.deepblending + "/" + scene)
 
-    common_args = " --quiet --eval --skip_train --sdf_trunc 0.04 --voxel_size 0.008 --depth_trunc 6"
+    common_args = " --quiet --eval --skip_train --voxel_size 0.008 --depth_trunc 6"
     for scene, source in zip(all_scenes, all_sources):
         os.system("python render.py --iteration 30000 -s " + source + " -m " + args.output_path + "/" + scene + common_args)
 
