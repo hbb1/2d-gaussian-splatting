@@ -39,6 +39,8 @@ if __name__ == "__main__":
     parser.add_argument("--voxel_size", default=0.004, type=float, help='Mesh: voxel size for TSDF')
     parser.add_argument("--depth_trunc", default=3.0, type=float, help='Mesh: Max depth range for TSDF')
     parser.add_argument("--num_cluster", default=1000, type=int, help='Mesh: number of connected clusters to export')
+    parser.add_argument("--unbounded", action="store_true", help='Mesh: using unbounded mode for meshing')
+    parser.add_argument("--mesh_res", default=1024, type=int, help='Mesh: resolution for unbounded mesh extraction')
     args = get_combined_args(parser)
     print("Rendering " + args.model_path)
 
@@ -83,14 +85,20 @@ if __name__ == "__main__":
     if not args.skip_mesh:
         print("export mesh ...")
         os.makedirs(train_dir, exist_ok=True)
-        # set the active_sh to export only diffuse color texture
+        # set the active_sh to 0 to export only diffuse texture
         gaussExtractor.gaussians.active_sh_degree = 0
         gaussExtractor.reconstruction(scene.getTrainCameras())
         # extract the mesh and save
-        mesh = gaussExtractor.extract_mesh_bounded(voxel_size=args.voxel_size, sdf_trunc=5*args.voxel_size, depth_trunc=args.depth_trunc)
-        o3d.io.write_triangle_mesh(os.path.join(train_dir, 'fuse.ply'), mesh)
+        if args.unbounded:
+            name = 'fuse_unbounded.ply'
+            mesh = gaussExtractor.extract_mesh_unbounded(resolution=args.mesh_res)
+        else:
+            name = 'fuse.ply'
+            mesh = gaussExtractor.extract_mesh_bounded(voxel_size=args.voxel_size, sdf_trunc=5*args.voxel_size, depth_trunc=args.depth_trunc)
+        
+        o3d.io.write_triangle_mesh(os.path.join(train_dir, name), mesh)
+        print("mesh saved at {}".format(os.path.join(train_dir, name)))
         # post-process the mesh and save, saving the largest N clusters
         mesh_post = post_process_mesh(mesh, cluster_to_keep=args.num_cluster)
-        o3d.io.write_triangle_mesh(os.path.join(train_dir, 'fuse_post.ply'), mesh_post)
-        print("mesh saved at {}".format(os.path.join(train_dir, 'fuse.ply')))
-        print("mesh post processed saved at {}".format(os.path.join(train_dir, 'fuse_post.ply')))
+        o3d.io.write_triangle_mesh(os.path.join(train_dir, name.replace('.ply', '_post.ply')), mesh_post)
+        print("mesh post processed saved at {}".format(os.path.join(train_dir, name.replace('.ply', '_post.ply'))))

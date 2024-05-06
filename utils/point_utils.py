@@ -17,7 +17,7 @@ def depths_to_points(view, depthmap):
         [0., 0., 1.0]]
     ).float().cuda()
     grid_x, grid_y = torch.meshgrid(torch.arange(W), torch.arange(H), indexing='xy')
-    # TODO: reduce dynamic allocation
+    # TODO: reduce dynamic allocation for speed 
     points = torch.stack([grid_x, grid_y, torch.ones_like(grid_x)], dim=-1).reshape(-1, 3).float().cuda()
     rays_d = points @ intrins.inverse().T @ c2w[:3,:3].T
     rays_o = c2w[:3,3]
