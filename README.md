@@ -17,7 +17,7 @@ Our key idea is to contract the space into a sphere and then perform **adaptive 
 
 ```bash
 # download
-https://github.com/hbb1/2d-gaussian-splatting.git
+git clone https://github.com/hbb1/2d-gaussian-splatting.git --recursive
 
 # if you have an environment used for 3dgs, use it
 # if not, create a new environment
@@ -42,7 +42,7 @@ Commandline arguments for regularizations
 ### Bounded Mesh Extraction
 To export a mesh within a bounded volume, simply use
 ```bash
-render.py -m <path to pre-trained model> -s <path to COLMAP dataset> 
+python render.py -m <path to pre-trained model> -s <path to COLMAP dataset> 
 ```
 Commandline arguments you should adjust accordingly for meshing for bounded TSDF fusion, use
 ```bash
@@ -53,7 +53,7 @@ Commandline arguments you should adjust accordingly for meshing for bounded TSDF
 ### Unbounded Mesh Extraction
 To export a mesh with an arbitrary size, we devised an unbounded TSDF fusion with space contraction and adaptive truncation.
 ```bash
-render.py -m <path to pre-trained model> -s <path to COLMAP dataset> --resolution 1024
+python render.py -m <path to pre-trained model> -s <path to COLMAP dataset> --resolution 1024
 ```
 
 ### Quick Examples
