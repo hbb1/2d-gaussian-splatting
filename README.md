@@ -53,7 +53,7 @@ Commandline arguments you should adjust accordingly for meshing for bounded TSDF
 ### Unbounded Mesh Extraction
 To export a mesh with an arbitrary size, we devised an unbounded TSDF fusion with space contraction and adaptive truncation.
 ```bash
-python render.py -m <path to pre-trained model> -s <path to COLMAP dataset> --resolution 1024
+python render.py -m <path to pre-trained model> -s <path to COLMAP dataset> --mesh_res 1024
 ```
 
 ### Quick Examples

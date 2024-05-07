@@ -85,7 +85,6 @@ class GaussianExtractor(object):
         self.rgbmaps = []
         self.normals = []
         self.depth_normals = []
-        self.points = []
         self.viewpoint_stack = []
 
     @torch.no_grad()
@@ -102,19 +101,16 @@ class GaussianExtractor(object):
             normal = torch.nn.functional.normalize(render_pkg['rend_normal'], dim=0)
             depth = render_pkg['surf_depth']
             depth_normal = render_pkg['surf_normal']
-            point = render_pkg['surf_point']
             self.rgbmaps.append(rgb.cpu())
             self.depthmaps.append(depth.cpu())
             self.alphamaps.append(alpha.cpu())
             self.normals.append(normal.cpu())
             self.depth_normals.append(depth_normal.cpu())
-            self.points.append(point.cpu())
         
         self.rgbmaps = torch.stack(self.rgbmaps, dim=0)
         self.depthmaps = torch.stack(self.depthmaps, dim=0)
         self.alphamaps = torch.stack(self.alphamaps, dim=0)
         self.depth_normals = torch.stack(self.depth_normals, dim=0)
-        self.points = torch.stack(self.points, dim=0)
 
     @torch.no_grad()
     def extract_mesh_bounded(self, voxel_size=0.004, sdf_trunc=0.02, depth_trunc=3, mask_backgrond=True):
