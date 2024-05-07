@@ -36,7 +36,7 @@ Commandline arguments for regularizations
 --depth_ratio # 0 for mean depth and 1 for median depth, 0 works for most cases
 ```
 **Tips for adjusting the parameters on your own dataset:**
-- For unbounded/large scenes, we suggest using mean depth, i.e., ``depth_trunc=0``,  for less "disk-aliasing" artefacts.
+- For unbounded/large scenes, we suggest using mean depth, i.e., ``depth_ratio=0``,  for less "disk-aliasing" artefacts.
 
 ## Testing
 ### Bounded Mesh Extraction
