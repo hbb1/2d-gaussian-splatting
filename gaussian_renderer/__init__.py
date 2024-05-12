@@ -62,7 +62,17 @@ def render(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, 
     rotations = None
     cov3D_precomp = None
     if pipe.compute_cov3D_python:
-        cov3D_precomp = pc.get_covariance(scaling_modifier)
+        # currently don't support normal consistency loss if use precomputed covariance
+        splat2world = pc.get_covariance(scaling_modifier)
+        W, H = viewpoint_camera.image_width, viewpoint_camera.image_height
+        near, far = viewpoint_camera.znear, viewpoint_camera.zfar
+        ndc2pix = torch.tensor([
+            [W / 2, 0, 0, (W-1) / 2],
+            [0, H / 2, 0, (H-1) / 2],
+            [0, 0, far-near, near],
+            [0, 0, 0, 1]]).float().cuda().T
+        world2pix =  viewpoint_camera.full_proj_transform @ ndc2pix
+        cov3D_precomp = (splat2world[:, [0,1,3]] @ world2pix[:,[0,1,3]]).permute(0,2,1).reshape(-1, 9) # column major
     else:
         scales = pc.get_scaling
         rotations = pc.get_rotation
@@ -83,12 +93,7 @@ def render(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, 
             shs = pc.get_features
     else:
         colors_precomp = override_color
-
-    try:
-        means3D.retain_grad()
-    except:
-        pass
-
+    
     rendered_image, radii, allmap = rasterizer(
         means3D = means3D,
         means2D = means2D,
