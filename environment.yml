@@ -5,14 +5,14 @@ channels:
   - conda-forge
   - defaults
 dependencies:
-  - ffmpeg=4.2.2=h20bf706_0
-  - pillow=10.2.0=py38h5eee18b_0
-  - pip=23.3.1=py38h06a4308_0
-  - python=3.8.18=h955ad1f_0
-  - pytorch=2.0.0=py3.8_cuda11.8_cudnn8.7.0_0
-  - torchaudio=2.0.0=py38_cu118
-  - torchvision=0.15.0=py38_cu118
-  - typing_extensions=4.9.0=py38h06a4308_1
+  - ffmpeg=4.2.2
+  - pillow=10.2.0
+  - pip=23.3.1
+  - python=3.8.18
+  - pytorch=2.0.0
+  - torchaudio=2.0.0
+  - torchvision=0.15.0
+  - typing_extensions=4.9.0
   - pip:
     - open3d==0.18.0
     - mediapy==1.1.2
