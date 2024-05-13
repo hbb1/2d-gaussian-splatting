@@ -38,7 +38,7 @@ if __name__ == "__main__":
     parser.add_argument("--render_path", action="store_true")
     parser.add_argument("--voxel_size", default=0.004, type=float, help='Mesh: voxel size for TSDF')
     parser.add_argument("--depth_trunc", default=3.0, type=float, help='Mesh: Max depth range for TSDF')
-    parser.add_argument("--num_cluster", default=1000, type=int, help='Mesh: number of connected clusters to export')
+    parser.add_argument("--num_cluster", default=50, type=int, help='Mesh: number of connected clusters to export')
     parser.add_argument("--unbounded", action="store_true", help='Mesh: using unbounded mode for meshing')
     parser.add_argument("--mesh_res", default=1024, type=int, help='Mesh: resolution for unbounded mesh extraction')
     args = get_combined_args(parser)
