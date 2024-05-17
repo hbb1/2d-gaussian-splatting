@@ -62,7 +62,7 @@ if not args.skip_rendering:
     # for scene in deep_blending_scenes:
         # all_sources.append(args.deepblending + "/" + scene)
 
-    common_args = " --quiet --eval --skip_train --voxel_size 0.008 --depth_trunc 6"
+    common_args = " --quiet --eval --skip_train"
     for scene, source in zip(all_scenes, all_sources):
         os.system("python render.py --iteration 30000 -s " + source + " -m " + args.output_path + "/" + scene + common_args)
 
