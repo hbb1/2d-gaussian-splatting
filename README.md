@@ -8,6 +8,11 @@ This repo contains the official implementation for the paper "2D Gaussian Splatt
 
 
 ## ⭐ New Features 
+- 2024/05/17: Improve training speed by 30%~40% through the [cuda operator fusing](https://github.com/hbb1/diff-surfel-rasterization/pull/7). Please update the submodules if you have already installed it. 
+    ```bash
+    git submodule update --remote  
+    pip install submodules/diff-surfel-rasterization
+    ```
 - 2024/05/05: Important updates - Now our algorithm supports **unbounded mesh extraction**!
 Our key idea is to contract the space into a sphere and then perform **adaptive TSDF truncation**. 
 
@@ -50,6 +55,7 @@ Commandline arguments you should adjust accordingly for meshing for bounded TSDF
 --voxel_size # voxel size
 --depth_trunc # depth truncation
 ```
+If these arguments are not specified, the script will automatically estimate them using the camera information.
 ### Unbounded Mesh Extraction
 To export a mesh with an arbitrary size, we devised an unbounded TSDF fusion with space contraction and adaptive truncation.
 ```bash
@@ -61,14 +67,14 @@ Assuming you have downloaded MipNeRF360, simply use
 ```bash
 python train.py -s <path to m360>/<garden> -m output/m360/garden
 # use our unbounded mesh extraction!!
-python render.py -s <path to m360>/<garden> -m output/m360/garden --unbounded --skip_test --skip_train
+python render.py -s <path to m360>/<garden> -m output/m360/garden --unbounded --skip_test --skip_train --mesh_res 1024
 # or use the bounded mesh extraction if you focus on foreground
-python render.py -s <path to m360>/<garden> -m output/m360/garden -depth_trunc 6 --voxel_size 0.008 --skip_test --skip_train
+python render.py -s <path to m360>/<garden> -m output/m360/garden --skip_test --skip_train --mesh_res 1024
 ```
 If you have downloaded the DTU dataset, you can use
 ```bash
 python train.py -s <path to dtu>/<scan105> -m output/date/scan105 -r 2 --depth_ratio 1
-python render.py -r 2 --depth_ratio 1 --depth_trunc 3 --voxel_size 0.004 --skip_test --skip_train
+python render.py -r 2 --depth_ratio 1 --skip_test --skip_train
 ```
 **Custom Dataset**: We use the same COLMAP loader as 3DGS, you can prepare your data following [here](https://github.com/graphdeco-inria/gaussian-splatting?tab=readme-ov-file#processing-your-own-scenes). 
 
@@ -92,7 +98,7 @@ python scripts/dtu_eval.py --dtu <path to the preprocessed DTU dataset>   \
 - **Can 3DGS's viewer be used to visualize 2DGS?** Technically, you can export 2DGS to 3DGS's ply file by appending an additional zero scale. However, due to the inaccurate affine projection of 3DGS's viewer, you may see some distorted artefacts. We are currently working on a viewer for 2DGS, so stay tuned for updates.
 
 ## Acknowledgements
-This project is built upon [3DGS](https://github.com/graphdeco-inria/gaussian-splatting). The TSDF fusion for extracting mesh is based on [Open3D](https://github.com/isl-org/Open3D). The rendering script for MipNeRF360 is adopted from [Multinerf](https://github.com/google-research/multinerf/), while the evaluation scripts for DTU and Tanks and Temples dataset are taken from [DTUeval-python](https://github.com/jzhangbs/DTUeval-python) and [TanksAndTemples](https://github.com/isl-org/TanksAndTemples/tree/master/python_toolbox/evaluation), respectively. We thank all the authors for their great repos. 
+This project is built upon [3DGS](https://github.com/graphdeco-inria/gaussian-splatting). The TSDF fusion for extracting mesh is based on [Open3D](https://github.com/isl-org/Open3D). The rendering script for MipNeRF360 is adopted from [Multinerf](https://github.com/google-research/multinerf/), while the evaluation scripts for DTU and Tanks and Temples dataset are taken from [DTUeval-python](https://github.com/jzhangbs/DTUeval-python) and [TanksAndTemples](https://github.com/isl-org/TanksAndTemples/tree/master/python_toolbox/evaluation), respectively. The fusing operation for accelerating the renderer is inspired by [Han's repodcue](https://github.com/Han230104/2D-Gaussian-Splatting-Reproduce). We thank all the authors for their great repos. 
 
 
 ## Citation
