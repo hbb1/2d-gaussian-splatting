@@ -8,6 +8,7 @@ This repo contains the official implementation for the paper "2D Gaussian Splatt
 
 
 ## ⭐ New Features 
+- 2024/05/30:  Fixed a bug related to unbounded meshing. The foreground mesh quality should now be consistent with the bounded mesh.
 - 2024/05/17: Improve training speed by 30%~40% through the [cuda operator fusing](https://github.com/hbb1/diff-surfel-rasterization/pull/7). Please update the submodules if you have already installed it. 
     ```bash
     git submodule update --remote  
