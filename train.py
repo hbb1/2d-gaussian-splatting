@@ -85,7 +85,7 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
         dist_loss = lambda_dist * (rend_dist).mean()
 
         # loss
-        total_loss = loss + normal_loss
+        total_loss = loss + dist_loss + normal_loss
         
         total_loss.backward()
 
@@ -169,7 +169,11 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
 
 def prepare_output_and_logger(args):    
     if not args.model_path:
-        args.model_path = os.path.join("./output/", os.path.basename(args.source_path))
+        if os.getenv('OAR_JOB_ID'):
+            unique_str=os.getenv('OAR_JOB_ID')
+        else:
+            unique_str = str(uuid.uuid4())
+        args.model_path = os.path.join("./output/", unique_str[0:10])
         
     # Set up output folder
     print("Output folder: {}".format(args.model_path))
