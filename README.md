@@ -91,6 +91,19 @@ python scripts/dtu_eval.py --dtu <path to the preprocessed DTU dataset>   \
      --DTU_Official <path to the official DTU dataset>
 ```
 
+## Interactive Viewer
+### Viser viewer
+Viser viewer based on [Viser](https://github.com/nerfstudio-project/viser) and [Gaussian Splatting Pytorch Lighting](https://github.com/yzslab/gaussian-splatting-lightning). Thanks to [Hwan](https://github.com/hwanhuh).
+
+```python
+# Installation
+using pip install viser
+pip install splines  
+pip install lightning
+# Run
+python viewer.py <path to pre-trained model>
+```
+
 ## FAQ
 - **Training does not converge.**  If your camera's principal point does not lie at the image center, you may experience convergence issues. Our code only supports the ideal pinhole camera format, so you may need to make some modifications. Please follow the instructions provided [here](https://github.com/graphdeco-inria/gaussian-splatting/issues/144#issuecomment-1938504456) to make the necessary changes. We have also modified the rasterizer in the latest [commit](https://github.com/hbb1/diff-surfel-rasterization/pull/6) to support data accepted by 3DGS. To avoid further issues, please update to the latest commit.
 
