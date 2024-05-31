@@ -318,7 +318,7 @@ class CameraPath:
                 self._spline = None
             return
 
-        # Update internal splines.
+        # Update visual splines.
         self._orientation_spline = splines.quaternion.KochanekBartels(
             [
                 splines.quaternion.UnitQuaternion.from_unit_xyzw(onp.roll(keyframe[0].wxyz, shift=-1))
@@ -332,7 +332,7 @@ class CameraPath:
             tcb=(self.smoothness, 0.0, 0.0),
             endconditions="closed" if self.loop else "natural",
         )
-        # Update model internal splines
+        # Update model visual splines
         model_count = len(keyframes[0][0].model_sizes)
         self._model_orientation_splines = []
         self._model_position_splines = []

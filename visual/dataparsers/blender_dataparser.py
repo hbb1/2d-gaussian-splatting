@@ -7,10 +7,10 @@ import os.path
 import torch
 
 from .dataparser import ImageSet, PointCloud, DataParser, DataParserOutputs
-from internal.configs.dataset import BlenderParams
-from internal.cameras.cameras import Cameras
-from internal.utils.graphics_utils import fov2focal, getNerfppNorm
-from internal.utils.sh_utils import SH2RGB
+from visualonfigs.dataset import BlenderParams
+from visualameras.cameras import Cameras
+from visualtils.graphics_utils import fov2focal, getNerfppNorm
+from visualtils.sh_utils import SH2RGB
 
 
 class BlenderDataParser(DataParser):

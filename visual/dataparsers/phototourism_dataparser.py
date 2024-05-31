@@ -2,8 +2,8 @@ import os
 import torch
 import csv
 from typing import Tuple
-from internal.configs.dataset import PhotoTourismParams
-from internal.dataparsers.colmap_dataparser import ColmapDataParser
+from visualonfigs.dataset import PhotoTourismParams
+from visualataparsers.colmap_dataparser import ColmapDataParser
 
 
 class PhotoTourismDataParser(ColmapDataParser):

@@ -1,6 +1,6 @@
 from typing import Tuple
 from dataclasses import dataclass
-from internal.configs.optimization import OptimizationParams
+from visualonfigs.optimization import OptimizationParams
 
 
 @dataclass

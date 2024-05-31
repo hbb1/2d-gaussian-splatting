@@ -3,7 +3,7 @@ import numpy as np
 import math
 import viser
 import viser.transforms as vst
-from internal.utils.gaussian_utils import GaussianTransformUtils
+from visual.utils.gaussian_utils import GaussianTransformUtils
 
 
 @dataclass

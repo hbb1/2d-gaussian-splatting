@@ -1,8 +1,8 @@
 import os
 import glob
 import torch
-from internal.models.gaussian_model_simplified import GaussianModelSimplified
-from internal.renderers.vanilla_renderer import VanillaRenderer
+from visual.models.gaussian_model_simplified import GaussianModelSimplified
+from visual.renderers.vanilla_renderer import VanillaRenderer
 
 
 class GaussianModelLoader:

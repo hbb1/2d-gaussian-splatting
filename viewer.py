@@ -16,9 +16,9 @@ from arguments import ModelParams, PipelineParams, get_combined_args
 from gaussian_renderer import render
 from scene import GaussianModel
 
-from internal.viewer import ClientThread
-from internal.viewer.ui import populate_render_tab, TransformPanel, EditPanel
-from internal.viewer.ui.up_direction_folder import UpDirectionFolder
+from visual.viewer import ClientThread
+from visual.viewer.ui import populate_render_tab, TransformPanel, EditPanel
+from visual.viewer.ui.up_direction_folder import UpDirectionFolder
 
 DROPDOWN_USE_DIRECT_APPEARANCE_EMBEDDING_VALUE = "@Direct"
 

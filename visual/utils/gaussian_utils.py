@@ -1,7 +1,7 @@
 import os
 import numpy as np
 import torch
-from internal.utils.colmap import rotmat2qvec, qvec2rotmat
+from visual.utils.colmap import rotmat2qvec, qvec2rotmat
 from typing import Union
 from dataclasses import dataclass
 from plyfile import PlyData, PlyElement
@@ -194,7 +194,7 @@ class Gaussian:
         dtype_full = [(attribute, 'f4') for attribute in construct_list_of_attributes()]
         attribute_list = [xyz, normals, f_dc, f_rest, opacities, scale, rotation]
         if with_colors is True:
-            from internal.utils.sh_utils import eval_sh
+            from visualtils.sh_utils import eval_sh
             rgbs = np.clip((eval_sh(0, self.features_dc, None) + 0.5), 0., 1.)
             rgbs = (rgbs * 255).astype(np.uint8)
 

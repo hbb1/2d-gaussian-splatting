@@ -4,10 +4,10 @@ from glob import glob
 import numpy as np
 import torch
 
-from internal.configs.dataset import NSVFParams
-from internal.cameras.cameras import Cameras
-from internal.utils.sh_utils import SH2RGB
-from internal.utils.graphics_utils import getNerfppNorm
+from visualfigs.dataset import NSVFParams
+from visualeras.cameras import Cameras
+from visualls.sh_utils import SH2RGB
+from visualls.graphics_utils import getNerfppNorm
 from .dataparser import DataParser, DataParserOutputs, ImageSet, PointCloud
 
 

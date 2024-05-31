@@ -2,7 +2,7 @@ import numpy as np
 import viser
 import viser.transforms as vtf
 import torch
-from internal.dataparsers.colmap_dataparser import ColmapDataParser
+from visual.dataparsers.colmap_dataparser import ColmapDataParser
 
 
 class UpDirectionFolder:

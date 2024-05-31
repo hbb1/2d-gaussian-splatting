@@ -4,7 +4,7 @@ from dataclasses import dataclass
 import numpy as np
 import torch
 
-from internal.cameras.cameras import Cameras
+from visual.cameras.cameras import Cameras
 
 
 @dataclass

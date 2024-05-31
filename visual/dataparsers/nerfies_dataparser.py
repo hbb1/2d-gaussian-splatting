@@ -3,7 +3,7 @@ import os.path
 
 import torch
 import numpy as np
-from internal.configs.dataset import NerfiesParams
+from visualonfigs.dataset import NerfiesParams
 from .dataparser import DataParser, ImageSet, Cameras, PointCloud, DataParserOutputs
 from ..utils.graphics_utils import get_center_and_diag_from_hstacked_xyz
 

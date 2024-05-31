@@ -1,6 +1,6 @@
 from typing import List, Tuple
 import torch
-from internal.renderers.gsplat_hit_pixel_count_renderer import GSplatHitPixelCountRenderer
+from visual.renderers.gsplat_hit_pixel_count_renderer import GSplatHitPixelCountRenderer
 
 
 def get_count_and_score(

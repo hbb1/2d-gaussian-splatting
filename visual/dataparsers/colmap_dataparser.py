@@ -9,11 +9,11 @@ import numpy as np
 
 from plyfile import PlyData, PlyElement
 
-import internal.utils.colmap as colmap_utils
-from internal.cameras.cameras import Cameras
-from internal.dataparsers.dataparser import DataParser, ImageSet, PointCloud, DataParserOutputs
-from internal.configs.dataset import ColmapParams
-from internal.utils.graphics_utils import getNerfppNorm
+import visual.utils.colmap as colmap_utils
+from visual.cameras.cameras import Cameras
+from visual.dataparsers.dataparser import DataParser, ImageSet, PointCloud, DataParserOutputs
+from visual.configs.dataset import ColmapParams
+from visual.utils.graphics_utils import getNerfppNorm
 
 
 class ColmapDataParser(DataParser):

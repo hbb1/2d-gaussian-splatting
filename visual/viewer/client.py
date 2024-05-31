@@ -5,8 +5,8 @@ import numpy as np
 import torch
 import viser
 import viser.transforms as vtf
-from internal.cameras.cameras import Cameras
-from internal.utils.graphics_utils import fov2focal
+from visual.cameras.cameras import Cameras
+from visual.utils.graphics_utils import fov2focal
 
 
 class ClientThread(threading.Thread):

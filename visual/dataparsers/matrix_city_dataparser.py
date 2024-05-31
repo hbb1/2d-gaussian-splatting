@@ -7,8 +7,8 @@ import torch
 from typing import Tuple
 from PIL import Image
 from tqdm import tqdm
-from internal.configs.dataset import MatrixCityParams
-from internal.cameras.cameras import Cameras
+from visualonfigs.dataset import MatrixCityParams
+from visualameras.cameras import Cameras
 from .dataparser import ImageSet, PointCloud, DataParser, DataParserOutputs
 
 
