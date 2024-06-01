@@ -22,3 +22,5 @@ dependencies:
     - trimesh==4.3.2
     - submodules/diff-surfel-rasterization
     - submodules/simple-knn
+    - plyfile
+    - opencv-python
