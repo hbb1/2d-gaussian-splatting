@@ -64,7 +64,7 @@ python render.py -m <path to pre-trained model> -s <path to COLMAP dataset> --me
 ```
 
 ### Quick Examples
-Assuming you have downloaded MipNeRF360, simply use
+Assuming you have downloaded [MipNeRF360](https://jonbarron.info/mipnerf360/), simply use
 ```bash
 python train.py -s <path to m360>/<garden> -m output/m360/garden
 # use our unbounded mesh extraction!!
@@ -72,7 +72,7 @@ python render.py -s <path to m360>/<garden> -m output/m360/garden --unbounded --
 # or use the bounded mesh extraction if you focus on foreground
 python render.py -s <path to m360>/<garden> -m output/m360/garden --skip_test --skip_train --mesh_res 1024
 ```
-If you have downloaded the DTU dataset, you can use
+If you have downloaded the [DTU dataset](https://drive.google.com/drive/folders/1SJFgt8qhQomHX55Q4xSvYE2C6-8tFll9), you can use
 ```bash
 python train.py -s <path to dtu>/<scan105> -m output/date/scan105 -r 2 --depth_ratio 1
 python render.py -r 2 --depth_ratio 1 --skip_test --skip_train
@@ -81,11 +81,11 @@ python render.py -r 2 --depth_ratio 1 --skip_test --skip_train
 
 ## Full evaluation
 We provide two scripts to evaluate our method of novel view synthesis and geometric reconstruction.
-For novel view synthesis on MipNeRF360 (which also works for other colmap datasets), use
+For novel view synthesis on [MipNeRF360](https://jonbarron.info/mipnerf360/) (which also works for other colmap datasets), use
 ```bash
 python scripts/mipnerf_eval.py -m60 <path to the MipNeRF360 dataset>
 ```
-For geometry reconstruction on DTU dataset, please download the preprocessed [data](). You also need to download the ground truth [DTU point cloud](https://roboimagedata.compute.dtu.dk/?page_id=36). 
+For geometry reconstruction on DTU dataset, please download the preprocessed [data](https://drive.google.com/drive/folders/1SJFgt8qhQomHX55Q4xSvYE2C6-8tFll9). You also need to download the ground truth [DTU point cloud](https://roboimagedata.compute.dtu.dk/?page_id=36). 
 ```bash
 python scripts/dtu_eval.py --dtu <path to the preprocessed DTU dataset>   \
      --DTU_Official <path to the official DTU dataset>
