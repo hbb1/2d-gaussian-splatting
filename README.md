@@ -8,8 +8,7 @@ This repo contains the official implementation for the paper "2D Gaussian Splatt
 
 
 ## ⭐ New Features 
-### SIBR Viewer
-The Pre-built Viewer for Windows can be found [here](https://drive.google.com/file/d/1DRFrtFUfz27QvQKOWbYXbRS2o2eSgaUT/view?usp=sharing). If you use Ubuntu or you want to check the viewer usage, please refer to [GS Monitor](https://github.com/RongLiu-Leo/Gaussian-Splatting-Monitor).
+
 
 ### How to use
 Firstly open the viewer, 

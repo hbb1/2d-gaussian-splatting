@@ -204,11 +204,11 @@ class GaussianExtractor(object):
                 Fusion all frames, perform adaptive sdf_funcation on the contract spaces.
             """
             if inv_contraction is not None:
-                samples = inv_contraction(samples)
                 mask = torch.linalg.norm(samples, dim=-1) > 1
                 # adaptive sdf_truncation
                 sdf_trunc = 5 * voxel_size * torch.ones_like(samples[:, 0])
                 sdf_trunc[mask] *= 1/(2-torch.linalg.norm(samples, dim=-1)[mask].clamp(max=1.9))
+                samples = inv_contraction(samples)
             else:
                 sdf_trunc = 5 * voxel_size
 

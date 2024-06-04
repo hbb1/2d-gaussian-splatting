@@ -47,12 +47,12 @@ def marching_cubes_with_contraction(
                 y_min, y_max = ys[j], ys[j + 1]
                 z_min, z_max = zs[k], zs[k + 1]
 
-                x = np.linspace(x_min, x_max, cropN)
-                y = np.linspace(y_min, y_max, cropN)
-                z = np.linspace(z_min, z_max, cropN)
+                x = torch.linspace(x_min, x_max, cropN).cuda()
+                y = torch.linspace(y_min, y_max, cropN).cuda()
+                z = torch.linspace(z_min, z_max, cropN).cuda()
 
-                xx, yy, zz = np.meshgrid(x, y, z, indexing="ij")
-                points = torch.tensor(np.vstack([xx.ravel(), yy.ravel(), zz.ravel()]).T, dtype=torch.float).cuda()
+                xx, yy, zz = torch.meshgrid(x, y, z, indexing="ij")
+                points = torch.tensor(torch.vstack([xx.ravel(), yy.ravel(), zz.ravel()]).T, dtype=torch.float).cuda()
 
                 @torch.no_grad()
                 def evaluate(points):
