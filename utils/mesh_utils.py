@@ -45,12 +45,21 @@ def post_process_mesh(mesh, cluster_to_keep=1000):
 def to_cam_open3d(viewpoint_stack):
     camera_traj = []
     for i, viewpoint_cam in enumerate(viewpoint_stack):
-        intrinsic=o3d.camera.PinholeCameraIntrinsic(width=viewpoint_cam.image_width, 
-                    height=viewpoint_cam.image_height, 
-                    cx = viewpoint_cam.image_width/2,
-                    cy = viewpoint_cam.image_height/2,
-                    fx = viewpoint_cam.image_width / (2 * math.tan(viewpoint_cam.FoVx / 2.)),
-                    fy = viewpoint_cam.image_height / (2 * math.tan(viewpoint_cam.FoVy / 2.)))
+        W = viewpoint_cam.image_width
+        H = viewpoint_cam.image_height
+        ndc2pix = torch.tensor([
+            [W / 2, 0, 0, (W-1) / 2],
+            [0, H / 2, 0, (H-1) / 2],
+            [0, 0, 0, 1]]).float().cuda().T
+        intrins =  (viewpoint_cam.projection_matrix @ ndc2pix)[:3,:3].T
+        intrinsic=o3d.camera.PinholeCameraIntrinsic(
+            width=viewpoint_cam.image_width,
+            height=viewpoint_cam.image_height,
+            cx = intrins[0,2].item(),
+            cy = intrins[1,2].item(), 
+            fx = intrins[0,0].item(), 
+            fy = intrins[1,1].item()
+        )
 
         extrinsic=np.asarray((viewpoint_cam.world_view_transform.T).cpu().numpy())
         camera = o3d.camera.PinholeCameraParameters()
