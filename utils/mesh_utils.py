@@ -90,10 +90,10 @@ class GaussianExtractor(object):
     @torch.no_grad()
     def clean(self):
         self.depthmaps = []
-        self.alphamaps = []
+        # self.alphamaps = []
         self.rgbmaps = []
-        self.normals = []
-        self.depth_normals = []
+        # self.normals = []
+        # self.depth_normals = []
         self.viewpoint_stack = []
 
     @torch.no_grad()
@@ -112,14 +112,14 @@ class GaussianExtractor(object):
             depth_normal = render_pkg['surf_normal']
             self.rgbmaps.append(rgb.cpu())
             self.depthmaps.append(depth.cpu())
-            self.alphamaps.append(alpha.cpu())
-            self.normals.append(normal.cpu())
-            self.depth_normals.append(depth_normal.cpu())
+            # self.alphamaps.append(alpha.cpu())
+            # self.normals.append(normal.cpu())
+            # self.depth_normals.append(depth_normal.cpu())
         
         self.rgbmaps = torch.stack(self.rgbmaps, dim=0)
         self.depthmaps = torch.stack(self.depthmaps, dim=0)
-        self.alphamaps = torch.stack(self.alphamaps, dim=0)
-        self.depth_normals = torch.stack(self.depth_normals, dim=0)
+        # self.alphamaps = torch.stack(self.alphamaps, dim=0)
+        # self.depth_normals = torch.stack(self.depth_normals, dim=0)
         self.estimate_bounding_sphere()
 
     def estimate_bounding_sphere(self):
@@ -194,7 +194,7 @@ class GaussianExtractor(object):
             mag = torch.linalg.norm(y, ord=2, dim=-1)[..., None]
             return torch.where(mag < 1, y, (1 / (2-mag) * (y/mag)))
 
-        def compute_sdf_perframe(i, points, depthmap, rgbmap, normalmap, viewpoint_cam):
+        def compute_sdf_perframe(i, points, depthmap, rgbmap, viewpoint_cam):
             """
                 compute per frame sdf
             """
@@ -204,9 +204,8 @@ class GaussianExtractor(object):
             mask_proj = ((pix_coords > -1. ) & (pix_coords < 1.) & (z > 0)).all(dim=-1)
             sampled_depth = torch.nn.functional.grid_sample(depthmap.cuda()[None], pix_coords[None, None], mode='bilinear', padding_mode='border', align_corners=True).reshape(-1, 1)
             sampled_rgb = torch.nn.functional.grid_sample(rgbmap.cuda()[None], pix_coords[None, None], mode='bilinear', padding_mode='border', align_corners=True).reshape(3,-1).T
-            sampled_normal = torch.nn.functional.grid_sample(normalmap.cuda()[None], pix_coords[None, None], mode='bilinear', padding_mode='border', align_corners=True).reshape(3,-1).T
             sdf = (sampled_depth-z)
-            return sdf, sampled_rgb, sampled_normal, mask_proj
+            return sdf, sampled_rgb, mask_proj
 
         def compute_unbounded_tsdf(samples, inv_contraction, voxel_size, return_rgb=False):
             """
@@ -226,10 +225,9 @@ class GaussianExtractor(object):
 
             weights = torch.ones_like(samples[:,0])
             for i, viewpoint_cam in tqdm(enumerate(self.viewpoint_stack), desc="TSDF integration progress"):
-                sdf, rgb, normal, mask_proj = compute_sdf_perframe(i, samples,
+                sdf, rgb, mask_proj = compute_sdf_perframe(i, samples,
                     depthmap = self.depthmaps[i],
                     rgbmap = self.rgbmaps[i],
-                    normalmap = self.depth_normals[i],
                     viewpoint_cam=self.viewpoint_stack[i],
                 )
 
@@ -293,5 +291,5 @@ class GaussianExtractor(object):
             save_img_u8(gt.permute(1,2,0).cpu().numpy(), os.path.join(gts_path, '{0:05d}'.format(idx) + ".png"))
             save_img_u8(self.rgbmaps[idx].permute(1,2,0).cpu().numpy(), os.path.join(render_path, '{0:05d}'.format(idx) + ".png"))
             save_img_f32(self.depthmaps[idx][0].cpu().numpy(), os.path.join(vis_path, 'depth_{0:05d}'.format(idx) + ".tiff"))
-            save_img_u8(self.normals[idx].permute(1,2,0).cpu().numpy() * 0.5 + 0.5, os.path.join(vis_path, 'normal_{0:05d}'.format(idx) + ".png"))
-            save_img_u8(self.depth_normals[idx].permute(1,2,0).cpu().numpy() * 0.5 + 0.5, os.path.join(vis_path, 'depth_normal_{0:05d}'.format(idx) + ".png"))
+            # save_img_u8(self.normals[idx].permute(1,2,0).cpu().numpy() * 0.5 + 0.5, os.path.join(vis_path, 'normal_{0:05d}'.format(idx) + ".png"))
+            # save_img_u8(self.depth_normals[idx].permute(1,2,0).cpu().numpy() * 0.5 + 0.5, os.path.join(vis_path, 'depth_normal_{0:05d}'.format(idx) + ".png"))
