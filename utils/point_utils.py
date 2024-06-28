@@ -13,7 +13,8 @@ def depths_to_points(view, depthmap):
         [W / 2, 0, 0, (W) / 2],
         [0, H / 2, 0, (H) / 2],
         [0, 0, 0, 1]]).float().cuda().T
-    intrins = (view.projection_matrix @ ndc2pix)[:3,:3].T
+    projection_matrix = c2w.T @ view.full_proj_transform
+    intrins = (projection_matrix @ ndc2pix)[:3,:3].T
     
     grid_x, grid_y = torch.meshgrid(torch.arange(W, device='cuda').float(), torch.arange(H, device='cuda').float(), indexing='xy')
     points = torch.stack([grid_x, grid_y, torch.ones_like(grid_x)], dim=-1).reshape(-1, 3)
