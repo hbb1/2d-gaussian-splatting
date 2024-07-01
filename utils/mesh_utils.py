@@ -116,8 +116,8 @@ class GaussianExtractor(object):
             # self.normals.append(normal.cpu())
             # self.depth_normals.append(depth_normal.cpu())
         
-        self.rgbmaps = torch.stack(self.rgbmaps, dim=0)
-        self.depthmaps = torch.stack(self.depthmaps, dim=0)
+        # self.rgbmaps = torch.stack(self.rgbmaps, dim=0)
+        # self.depthmaps = torch.stack(self.depthmaps, dim=0)
         # self.alphamaps = torch.stack(self.alphamaps, dim=0)
         # self.depth_normals = torch.stack(self.depth_normals, dim=0)
         self.estimate_bounding_sphere()
