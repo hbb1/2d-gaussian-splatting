@@ -13,7 +13,9 @@ from scene.cameras import Camera
 import numpy as np
 from utils.general_utils import PILtoTorch
 from utils.graphics_utils import fov2focal
-
+from PIL import Image
+import os
+import torch.nn.functional as F
 WARNED = False
 
 def loadCam(args, id, cam_info, resolution_scale):
@@ -48,9 +50,29 @@ def loadCam(args, id, cam_info, resolution_scale):
         loaded_mask = None
         gt_image = resized_image_rgb
 
+    if args.w_normal_prior:
+        import torch
+        # normal_path = cam_info.image_path.replace('images_4', args.w_normal_prior)
+        normal_path = os.path.join(os.path.dirname(os.path.dirname(cam_info.image_path)), args.w_normal_prior, os.path.basename(cam_info.image_path))
+        if os.path.exists(normal_path[:-4]+ '.npy'):
+            _normal = torch.tensor(np.load(normal_path[:-4]+ '.npy'))
+            _normal = - (_normal * 2 - 1)
+            resized_normal = F.interpolate(_normal.unsqueeze(0), size=resolution[::-1], mode='bicubic')
+            _normal = resized_normal.squeeze(0)
+        else:
+            _normal = Image.open(normal_path[:-4]+ '.png')
+            resized_normal = PILtoTorch(_normal, resolution)
+            resized_normal = resized_normal[:3]
+            _normal = - (resized_normal * 2 - 1)
+        # normalize normal
+        _normal = _normal.permute(1, 2, 0) @ (torch.tensor(np.linalg.inv(cam_info.R)).float())
+        _normal = _normal.permute(2, 0, 1)
+    else:
+        _normal = None
+        
     return Camera(colmap_id=cam_info.uid, R=cam_info.R, T=cam_info.T,
                   FoVx=cam_info.FovX, FoVy=cam_info.FovY,
-                  image=gt_image, gt_alpha_mask=loaded_mask,
+                  image=gt_image, normal=_normal, gt_alpha_mask=loaded_mask,
                   image_name=cam_info.image_name, uid=id,
                   principal_point_ndc=cam_info.principal_point_ndc,
                   data_device=args.data_device)

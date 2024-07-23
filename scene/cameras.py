@@ -16,7 +16,7 @@ from utils.graphics_utils import getWorld2View2, getProjectionMatrixShift
 
 class Camera(nn.Module):
     def __init__(self, colmap_id, R, T, FoVx, FoVy, image, gt_alpha_mask,
-                 image_name, uid, principal_point_ndc,
+                 image_name, uid, principal_point_ndc, normal=None,
                  trans=np.array([0.0, 0.0, 0.0]), scale=1.0, data_device = "cuda"
                  ):
         super(Camera, self).__init__()
@@ -37,6 +37,14 @@ class Camera(nn.Module):
             self.data_device = torch.device("cuda")
 
         self.original_image = image.clamp(0.0, 1.0).to(self.data_device)
+        if normal is not None:
+            self.normal = normal.to(self.data_device)
+            normal_norm = torch.norm(self.normal, dim=0, keepdim=True)
+            self.normal_mask = ~((normal_norm > 1.1) | (normal_norm < 0.9))
+            self.normal = self.normal / normal_norm
+        else:
+            self.normal = None
+            self.normal_mask = None
         self.image_width = self.original_image.shape[2]
         self.image_height = self.original_image.shape[1]
 
