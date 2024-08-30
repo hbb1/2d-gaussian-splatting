@@ -42,6 +42,21 @@ def ranking_loss(error, penalize_ratio=0.7, extra_weights=None , type='mean'):
     elif type == 'sum':
         return torch.sum(s_error)
 
+def normal_gradient_loss(rend_normal, gt_normal):
+    sobel_x = torch.tensor([[-1, 0, 1], [-2, 0, 2], [-1, 0, 1]]).float().unsqueeze(0).unsqueeze(0).to(rend_normal.device) / 4
+    sobel_y = torch.tensor([[-1, -2, -1], [0, 0, 0], [1, 2, 1]]).float().unsqueeze(0).unsqueeze(0).to(rend_normal.device) / 4
+
+    rend_grad_x = F.conv2d(rend_normal, sobel_x.repeat(3, 1, 1, 1), padding=1, groups=3)
+    rend_grad_y = F.conv2d(rend_normal, sobel_y.repeat(3, 1, 1, 1), padding=1, groups=3)
+
+    gt_grad_x = F.conv2d(gt_normal, sobel_x.repeat(3, 1, 1, 1), padding=1, groups=3)
+    gt_grad_y = F.conv2d(gt_normal, sobel_y.repeat(3, 1, 1, 1), padding=1, groups=3)
+
+    loss_x = F.mse_loss(rend_grad_x, gt_grad_x)
+    loss_y = F.mse_loss(rend_grad_y, gt_grad_y)
+
+    return loss_x + loss_y
+    
 def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoint_iterations, checkpoint):
     first_iter = 0
     tb_writer = prepare_output_and_logger(dataset)
@@ -88,10 +103,10 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
         loss = (1.0 - opt.lambda_dssim) * Ll1 + opt.lambda_dssim * (1.0 - ssim(image, gt_image))
         
         # regularization
-        # lambda_normal = opt.lambda_normal if iteration > 7000 else 0.0
-        lambda_normal = 0.0
+        lambda_normal = opt.lambda_normal if iteration > 7000 else 0.0
         lambda_dist = opt.lambda_dist if iteration > 3000 else 0.0
         lambda_normal_prior = opt.lambda_normal_prior * (7000 - iteration) / 7000 if iteration < 7000 else opt.lambda_normal_prior
+        lambda_normal_gradient = opt.lambda_normal_gradient if iteration > 7000 else 0.0
         
         rend_dist = render_pkg["rend_dist"]
         dist_loss = lambda_dist * (rend_dist).mean()
@@ -100,7 +115,6 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
         surf_normal = render_pkg['surf_normal']
         rend_alpha = render_pkg['rend_alpha']
         
-        normal_error = (1 - (rend_normal * surf_normal).sum(dim=0))[None]
         if viewpoint_cam.normal is not None:
             prior_normal = viewpoint_cam.normal * (rend_alpha).detach()
             prior_normal_mask = viewpoint_cam.normal_mask[0]
@@ -114,8 +128,11 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
 
             normal_prior_error = cos_loss(prior_normal[:, prior_normal_mask], rend_normal[:, prior_normal_mask]) + \
                                 cos_loss(prior_normal[:, prior_normal_mask], surf_normal[:, prior_normal_mask])
-            normal_loss = lambda_normal * normal_error.mean() + lambda_normal_prior * normal_prior_error
+            normal_loss = lambda_normal_prior * normal_prior_error
+            if lambda_normal_gradient > 0.0:
+                normal_loss += lambda_normal_gradient * normal_gradient_loss(rend_normal, prior_normal)
         else:
+            normal_error = (1 - (rend_normal * surf_normal).sum(dim=0))[None]
             normal_loss = lambda_normal * normal_error.mean()
 
         # loss
