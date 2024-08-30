@@ -12,9 +12,10 @@
 import os
 import torch
 from random import randint
-from utils.loss_utils import l1_loss, ssim
+from utils.loss_utils import l1_loss, cos_loss, ssim
 from gaussian_renderer import render, network_gui
 import sys
+import torch.nn.functional as F
 from scene import Scene, GaussianModel
 from utils.general_utils import safe_state
 import uuid
@@ -27,6 +28,19 @@ try:
     TENSORBOARD_FOUND = True
 except ImportError:
     TENSORBOARD_FOUND = False
+
+def ranking_loss(error, penalize_ratio=0.7, extra_weights=None , type='mean'):
+    error, indices = torch.sort(error)
+    # only sum relatively small errors
+    s_error = torch.index_select(error, 0, index=indices[:int(penalize_ratio * indices.shape[0])])
+    if extra_weights is not None:
+        weights = torch.index_select(extra_weights, 0, index=indices[:int(penalize_ratio * indices.shape[0])])
+        s_error = s_error * weights
+
+    if type == 'mean':
+        return torch.mean(s_error)
+    elif type == 'sum':
+        return torch.sum(s_error)
 
 def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoint_iterations, checkpoint):
     first_iter = 0
@@ -74,15 +88,35 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
         loss = (1.0 - opt.lambda_dssim) * Ll1 + opt.lambda_dssim * (1.0 - ssim(image, gt_image))
         
         # regularization
-        lambda_normal = opt.lambda_normal if iteration > 7000 else 0.0
+        # lambda_normal = opt.lambda_normal if iteration > 7000 else 0.0
+        lambda_normal = 0.0
         lambda_dist = opt.lambda_dist if iteration > 3000 else 0.0
-
+        lambda_normal_prior = opt.lambda_normal_prior * (7000 - iteration) / 7000 if iteration < 7000 else opt.lambda_normal_prior
+        
         rend_dist = render_pkg["rend_dist"]
+        dist_loss = lambda_dist * (rend_dist).mean()
+        
         rend_normal  = render_pkg['rend_normal']
         surf_normal = render_pkg['surf_normal']
+        rend_alpha = render_pkg['rend_alpha']
+        
         normal_error = (1 - (rend_normal * surf_normal).sum(dim=0))[None]
-        normal_loss = lambda_normal * (normal_error).mean()
-        dist_loss = lambda_dist * (rend_dist).mean()
+        if viewpoint_cam.normal is not None:
+            prior_normal = viewpoint_cam.normal * (rend_alpha).detach()
+            prior_normal_mask = viewpoint_cam.normal_mask[0]
+
+            # normal_prior_error = (1 - F.cosine_similarity(prior_normal, rend_normal, dim=0)) + \
+            #                      (1 - F.cosine_similarity(prior_normal, surf_normal, dim=0))
+            # TODO: Add geo_aware
+            # normal_prior_error = normal_prior_error * torch.exp(cosines.abs()) / torch.exp(cosines.abs()).sum()
+            
+            # normal_prior_error = ranking_loss(normal_prior_error[prior_normal_mask], penalize_ratio=0.8, type='mean')
+
+            normal_prior_error = cos_loss(prior_normal[:, prior_normal_mask], rend_normal[:, prior_normal_mask]) + \
+                                cos_loss(prior_normal[:, prior_normal_mask], surf_normal[:, prior_normal_mask])
+            normal_loss = lambda_normal * normal_error.mean() + lambda_normal_prior * normal_prior_error
+        else:
+            normal_loss = lambda_normal * normal_error.mean()
 
         # loss
         total_loss = loss + dist_loss + normal_loss
@@ -116,7 +150,7 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
                 tb_writer.add_scalar('train_loss_patches/dist_loss', ema_dist_for_log, iteration)
                 tb_writer.add_scalar('train_loss_patches/normal_loss', ema_normal_for_log, iteration)
 
-            training_report(tb_writer, iteration, Ll1, loss, l1_loss, iter_start.elapsed_time(iter_end), testing_iterations, scene, render, (pipe, background))
+            # training_report(tb_writer, iteration, Ll1, loss, l1_loss, iter_start.elapsed_time(iter_end), testing_iterations, scene, render, (pipe, background))
             if (iteration in saving_iterations):
                 print("\n[ITER {}] Saving Gaussians".format(iteration))
                 scene.save(iteration)
@@ -136,6 +170,8 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
 
             # Optimizer step
             if iteration < opt.iterations:
+                # visible = radii > 0
+                # gaussians.optimizer.step(visible, radii.shape[0])
                 gaussians.optimizer.step()
                 gaussians.optimizer.zero_grad(set_to_none = True)
 
@@ -258,8 +294,8 @@ if __name__ == "__main__":
     parser.add_argument('--ip', type=str, default="127.0.0.1")
     parser.add_argument('--port', type=int, default=6009)
     parser.add_argument('--detect_anomaly', action='store_true', default=False)
-    parser.add_argument("--test_iterations", nargs="+", type=int, default=[7_000, 30_000])
-    parser.add_argument("--save_iterations", nargs="+", type=int, default=[7_000, 30_000])
+    parser.add_argument("--test_iterations", nargs="+", type=int, default=[7_000, 20_000, 30_000])
+    parser.add_argument("--save_iterations", nargs="+", type=int, default=[7_000, 20_000, 30_000])
     parser.add_argument("--quiet", action="store_true")
     parser.add_argument("--checkpoint_iterations", nargs="+", type=int, default=[])
     parser.add_argument("--start_checkpoint", type=str, default = None)
