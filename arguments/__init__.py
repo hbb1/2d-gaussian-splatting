@@ -55,6 +55,7 @@ class ModelParams(ParamGroup):
         self.data_device = "cuda"
         self.eval = False
         self.render_items = ['RGB', 'Alpha', 'Normal', 'Depth', 'Edge', 'Curvature']
+        self.w_normal_prior = ""
         super().__init__(parser, "Loading Parameters", sentinel)
 
     def extract(self, args):
@@ -83,8 +84,10 @@ class OptimizationParams(ParamGroup):
         self.rotation_lr = 0.001
         self.percent_dense = 0.01
         self.lambda_dssim = 0.2
-        self.lambda_dist = 0.0
+        self.lambda_dist = 0.
         self.lambda_normal = 0.05
+        self.lambda_normal_prior = 0.25
+        self.lambda_normal_gradient = 0.
         self.opacity_cull = 0.05
 
         self.densification_interval = 100
@@ -92,6 +95,10 @@ class OptimizationParams(ParamGroup):
         self.densify_from_iter = 500
         self.densify_until_iter = 15_000
         self.densify_grad_threshold = 0.0002
+        
+        self.contribution_prune_from_iter = 500
+        self.contribution_prune_interval = 300
+        self.contribution_prune_ratio = 0.1
         super().__init__(parser, "Optimization Parameters")
 
 def get_combined_args(parser : ArgumentParser):
