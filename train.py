@@ -29,6 +29,25 @@ try:
 except ImportError:
     TENSORBOARD_FOUND = False
 
+def prune_low_contribution_gaussians(gaussians, cameras, pipe, bg, K=5, prune_ratio=0.1):
+    top_list = [None, ] * K
+    for i, cam in enumerate(cameras):
+        trans = render(cam, gaussians, pipe, bg, record_transmittance=True)
+        if top_list[0] is not None:
+            m = trans > top_list[0]
+            if m.any():
+                for i in range(K - 1):
+                    top_list[K - 1 - i][m] = top_list[K - 2 - i][m]
+                top_list[0][m] = trans[m]
+        else:
+            top_list = [trans.clone() for _ in range(K)]
+
+    contribution = torch.stack(top_list, dim=-1).mean(-1)
+    tile = torch.quantile(contribution, prune_ratio)
+    prune_mask = contribution < tile
+    gaussians.prune_points(prune_mask)
+    torch.cuda.empty_cache()
+    
 def ranking_loss(error, penalize_ratio=0.7, extra_weights=None , type='mean'):
     error, indices = torch.sort(error)
     # only sum relatively small errors
@@ -80,6 +99,7 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
 
     progress_bar = tqdm(range(first_iter, opt.iterations), desc="Training progress")
     first_iter += 1
+    all_cameras = scene.getTrainCameras().copy()[::3]
     for iteration in range(first_iter, opt.iterations + 1):        
 
         iter_start.record()
@@ -119,15 +139,14 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
             prior_normal = viewpoint_cam.normal * (rend_alpha).detach()
             prior_normal_mask = viewpoint_cam.normal_mask[0]
 
-            # normal_prior_error = (1 - F.cosine_similarity(prior_normal, rend_normal, dim=0)) + \
-            #                      (1 - F.cosine_similarity(prior_normal, surf_normal, dim=0))
+            normal_prior_error = (1 - F.cosine_similarity(prior_normal, rend_normal, dim=0)) + \
+                                 (1 - F.cosine_similarity(prior_normal, surf_normal, dim=0))
             # TODO: Add geo_aware
             # normal_prior_error = normal_prior_error * torch.exp(cosines.abs()) / torch.exp(cosines.abs()).sum()
             
-            # normal_prior_error = ranking_loss(normal_prior_error[prior_normal_mask], penalize_ratio=0.8, type='mean')
-
-            normal_prior_error = cos_loss(prior_normal[:, prior_normal_mask], rend_normal[:, prior_normal_mask]) + \
-                                cos_loss(prior_normal[:, prior_normal_mask], surf_normal[:, prior_normal_mask])
+            normal_prior_error = ranking_loss(normal_prior_error[prior_normal_mask], penalize_ratio=0.7, type='mean')
+            # normal_prior_error = cos_loss(prior_normal[:, prior_normal_mask], rend_normal[:, prior_normal_mask]) + \
+                                # cos_loss(prior_normal[:, prior_normal_mask], surf_normal[:, prior_normal_mask])
             normal_loss = lambda_normal_prior * normal_prior_error
             if lambda_normal_gradient > 0.0:
                 normal_loss += lambda_normal_gradient * normal_gradient_loss(rend_normal, prior_normal)
@@ -182,6 +201,10 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
                     size_threshold = 20 if iteration > opt.opacity_reset_interval else None
                     gaussians.densify_and_prune(opt.densify_grad_threshold, opt.opacity_cull, scene.cameras_extent, size_threshold)
                 
+                if iteration > opt.contribution_prune_from_iter and iteration % opt.contribution_prune_interval == 0:
+                    prune_low_contribution_gaussians(gaussians, all_cameras, pipe, background, K=5, prune_ratio=opt.contribution_prune_ratio)
+                    print(f'Num gs after contribution prune: {len(gaussians.get_xyz)}')
+
                 if iteration % opt.opacity_reset_interval == 0 or (dataset.white_background and iteration == opt.densify_from_iter):
                     gaussians.reset_opacity()
 
