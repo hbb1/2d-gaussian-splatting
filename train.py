@@ -12,11 +12,11 @@
 import os
 import torch
 from random import randint
-from utils.loss_utils import l1_loss, cos_loss, ssim
+from utils.loss_utils import l1_loss_appearance, ssim
 from gaussian_renderer import render, network_gui
 import sys
 import torch.nn.functional as F
-from scene import Scene, GaussianModel
+from scene import Scene, GaussianModel, AppearanceModel
 from utils.general_utils import safe_state
 import uuid
 from tqdm import tqdm
@@ -75,7 +75,45 @@ def normal_gradient_loss(rend_normal, gt_normal):
     loss_y = F.mse_loss(rend_grad_y, gt_grad_y)
 
     return loss_x + loss_y
-    
+
+def edge_aware_normal_gradient_loss(gt_image, rend_normal, gt_normal, prior_normal_mask, edge_threshold=1):
+    # Define Sobel filters
+    sobel_x = torch.tensor([[-1, 0, 1], [-2, 0, 2], [-1, 0, 1]]).float().unsqueeze(0).unsqueeze(0).to(rend_normal.device) / 8
+    sobel_y = torch.tensor([[-1, -2, -1], [0, 0, 0], [1, 2, 1]]).float().unsqueeze(0).unsqueeze(0).to(rend_normal.device) / 8
+
+    # Compute gradients of rendered and ground truth normals
+    rend_grad_x = F.conv2d(rend_normal, sobel_x.repeat(3, 1, 1, 1), padding=1, groups=3)
+    rend_grad_y = F.conv2d(rend_normal, sobel_y.repeat(3, 1, 1, 1), padding=1, groups=3)
+
+    gt_grad_x = F.conv2d(gt_normal, sobel_x.repeat(3, 1, 1, 1), padding=1, groups=3)
+    gt_grad_y = F.conv2d(gt_normal, sobel_y.repeat(3, 1, 1, 1), padding=1, groups=3)
+
+    # Compute gradients of gt_image for edge detection
+    dI_dx = torch.cat([F.conv2d(gt_image[i].unsqueeze(0), sobel_x, padding=1) for i in range(gt_image.shape[0])])
+    dI_dx = torch.mean(torch.abs(dI_dx), 1, keepdim=True)
+    dI_dy = torch.cat([F.conv2d(gt_image[i].unsqueeze(0), sobel_y, padding=1) for i in range(gt_image.shape[0])])
+    dI_dy = torch.mean(torch.abs(dI_dy), 1, keepdim=True)
+
+    # Compute edge strength
+    edge_strength = dI_dx + dI_dy
+
+    # Create non-edge mask
+    non_edge_mask = (edge_strength < edge_threshold).float()
+
+    # Compute loss for gradients
+    loss_x = F.mse_loss(rend_grad_x, gt_grad_x)
+    loss_y = F.mse_loss(rend_grad_y, gt_grad_y)
+    loss = loss_x + loss_y
+
+    # Apply non-edge mask and prior_normal_mask
+    masked_loss = loss * non_edge_mask * prior_normal_mask
+
+    # Normalize by the number of non-edge pixels
+    num_non_edge_pixels = torch.sum(non_edge_mask * prior_normal_mask) + 1e-6
+    normalized_loss = torch.sum(masked_loss) / num_non_edge_pixels
+
+    return normalized_loss
+
 def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoint_iterations, checkpoint):
     first_iter = 0
     tb_writer = prepare_output_and_logger(dataset)
@@ -99,7 +137,13 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
 
     progress_bar = tqdm(range(first_iter, opt.iterations), desc="Training progress")
     first_iter += 1
-    all_cameras = scene.getTrainCameras().copy()[::3]
+    all_cameras = scene.getTrainCameras()
+    if dataset.use_decoupled_appearance:
+        appearances = AppearanceModel(len(all_cameras))
+        appearances.training_setup(opt)
+    else:
+        appearances = None
+
     for iteration in range(first_iter, opt.iterations + 1):        
 
         iter_start.record()
@@ -113,13 +157,13 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
         # Pick a random Camera
         if not viewpoint_stack:
             viewpoint_stack = scene.getTrainCameras().copy()
-        viewpoint_cam = viewpoint_stack.pop(randint(0, len(viewpoint_stack)-1))
-        
+        viewpoint_idx = randint(0, len(all_cameras)-1)
+        viewpoint_cam = all_cameras[viewpoint_idx]
         render_pkg = render(viewpoint_cam, gaussians, pipe, background)
         image, viewspace_point_tensor, visibility_filter, radii = render_pkg["render"], render_pkg["viewspace_points"], render_pkg["visibility_filter"], render_pkg["radii"]
         
         gt_image = viewpoint_cam.original_image.cuda()
-        Ll1 = l1_loss(image, gt_image)
+        Ll1 = l1_loss_appearance(image, gt_image, appearances, viewpoint_idx) # use L1 loss for the transformed image if using decoupled appearance
         loss = (1.0 - opt.lambda_dssim) * Ll1 + opt.lambda_dssim * (1.0 - ssim(image, gt_image))
         
         # regularization
@@ -133,6 +177,7 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
         
         rend_normal  = render_pkg['rend_normal']
         surf_normal = render_pkg['surf_normal']
+        surf_normal_expected = render_pkg['surf_normal_expected']
         rend_alpha = render_pkg['rend_alpha']
         
         if viewpoint_cam.normal is not None:
@@ -140,16 +185,13 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
             prior_normal_mask = viewpoint_cam.normal_mask[0]
 
             normal_prior_error = (1 - F.cosine_similarity(prior_normal, rend_normal, dim=0)) + \
-                                 (1 - F.cosine_similarity(prior_normal, surf_normal, dim=0))
-            # TODO: Add geo_aware
-            # normal_prior_error = normal_prior_error * torch.exp(cosines.abs()) / torch.exp(cosines.abs()).sum()
+                                 (1 - F.cosine_similarity(prior_normal, surf_normal_expected, dim=0))           
+            normal_prior_error = ranking_loss(normal_prior_error[prior_normal_mask], 
+                                              penalize_ratio=1.0, type='mean')
             
-            normal_prior_error = ranking_loss(normal_prior_error[prior_normal_mask], penalize_ratio=0.7, type='mean')
-            # normal_prior_error = cos_loss(prior_normal[:, prior_normal_mask], rend_normal[:, prior_normal_mask]) + \
-                                # cos_loss(prior_normal[:, prior_normal_mask], surf_normal[:, prior_normal_mask])
             normal_loss = lambda_normal_prior * normal_prior_error
             if lambda_normal_gradient > 0.0:
-                normal_loss += lambda_normal_gradient * normal_gradient_loss(rend_normal, prior_normal)
+                normal_loss += lambda_normal_gradient * normal_gradient_loss(surf_normal, prior_normal)
         else:
             normal_error = (1 - (rend_normal * surf_normal).sum(dim=0))[None]
             normal_loss = lambda_normal * normal_error.mean()
@@ -202,7 +244,11 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
                     gaussians.densify_and_prune(opt.densify_grad_threshold, opt.opacity_cull, scene.cameras_extent, size_threshold)
                 
                 if iteration > opt.contribution_prune_from_iter and iteration % opt.contribution_prune_interval == 0:
-                    prune_low_contribution_gaussians(gaussians, all_cameras, pipe, background, K=5, prune_ratio=opt.contribution_prune_ratio)
+                    if iteration % opt.opacity_reset_interval == opt.contribution_prune_interval:
+                        print("Skipped Pruning for", iteration)
+                        continue
+                    prune_low_contribution_gaussians(gaussians, all_cameras[::3], pipe, background, 
+                                                     K=1, prune_ratio=opt.contribution_prune_ratio)
                     print(f'Num gs after contribution prune: {len(gaussians.get_xyz)}')
 
                 if iteration % opt.opacity_reset_interval == 0 or (dataset.white_background and iteration == opt.densify_from_iter):
@@ -214,6 +260,9 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
                 # gaussians.optimizer.step(visible, radii.shape[0])
                 gaussians.optimizer.step()
                 gaussians.optimizer.zero_grad(set_to_none = True)
+                if appearances is not None:
+                    appearances.optimizer.step()
+                    appearances.optimizer.zero_grad(set_to_none = True)
 
             if (iteration in checkpoint_iterations):
                 print("\n[ITER {}] Saving Checkpoint".format(iteration))

@@ -20,6 +20,28 @@ def l1_loss(network_output, gt):
 def l2_loss(network_output, gt):
     return ((network_output - gt) ** 2).mean()
 
+def l1_loss_appearance(image, gt_image, appearances, view_idx):
+    if appearances is None:
+        return l1_loss(image, gt_image)
+    else:
+        appearance_embedding = appearances.get_embedding(view_idx)
+        # center crop the image
+        origH, origW = image.shape[1:]
+        H = origH // 32 * 32
+        W = origW // 32 * 32
+        left = origW // 2 - W // 2
+        top = origH // 2 - H // 2
+        crop_image = image[:, top:top+H, left:left+W]
+        crop_gt_image = gt_image[:, top:top+H, left:left+W]
+        
+        # down sample the image
+        crop_image_down = torch.nn.functional.interpolate(crop_image[None], size=(H//32, W//32), mode="bilinear", align_corners=True)[0]
+        
+        crop_image_down = torch.cat([crop_image_down, appearance_embedding[None].repeat(H//32, W//32, 1).permute(2, 0, 1)], dim=0)[None]
+        mapping_image = appearances.appearance_network(crop_image_down)
+        transformed_image = mapping_image * crop_image
+        return l1_loss(transformed_image, crop_gt_image)
+
 def gaussian(window_size, sigma):
     gauss = torch.Tensor([exp(-(x - window_size // 2) ** 2 / float(2 * sigma ** 2)) for x in range(window_size)])
     return gauss / gauss.sum()
@@ -64,6 +86,7 @@ def _ssim(img1, img2, window, window_size, channel, size_average=True):
 
     C1 = 0.01 ** 2
     C2 = 0.03 ** 2
+    # C1 = C2 = 0.01 ** 2
 
     ssim_map = ((2 * mu1_mu2 + C1) * (2 * sigma12 + C2)) / ((mu1_sq + mu2_sq + C1) * (sigma1_sq + sigma2_sq + C2))
 
