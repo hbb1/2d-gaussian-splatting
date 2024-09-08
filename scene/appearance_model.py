@@ -56,13 +56,6 @@ class AppearanceModel:
     def get_embedding(self, idx):
         return self._appearance_embeddings[idx]
         
-    def setup_optimizer(self, lr_appearance_embeddings, lr_appearance_network):
-        params = [
-            {'params': [self._appearance_embeddings], 'lr': lr_appearance_embeddings, "name": "appearance_embeddings"},
-            {'params': self.appearance_network.parameters(), 'lr': lr_appearance_network, "name": "appearance_network"}
-        ]
-        self.optimizer = torch.optim.Adam(params, lr=0.0, eps=1e-15)
-        
     def training_setup(self, training_args):
         params = [
             {'params': [self._appearance_embeddings], 'lr': training_args.appearance_embeddings_lr, "name": "appearance_embeddings"},
