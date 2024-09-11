@@ -169,8 +169,8 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
         # regularization
         lambda_normal = opt.lambda_normal if iteration > 7000 else 0.0
         lambda_dist = opt.lambda_dist if iteration > 3000 else 0.0
-        lambda_normal_prior = opt.lambda_normal_prior * (7000 - iteration) / 7000 if iteration < 7000 else opt.lambda_normal_prior
-        lambda_normal_gradient = opt.lambda_normal_gradient if iteration > 7000 else 0.0
+        lambda_normal_prior = opt.lambda_normal_prior if iteration > 15000 else 0.0
+        lambda_normal_gradient = opt.lambda_normal_gradient if iteration > 15000 else 0.0
         
         rend_dist = render_pkg["rend_dist"]
         dist_loss = lambda_dist * (rend_dist).mean()
@@ -180,7 +180,9 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
         surf_normal_expected = render_pkg['surf_normal_expected']
         rend_alpha = render_pkg['rend_alpha']
         
-        if viewpoint_cam.normal is not None:
+        normal_error = (1 - (rend_normal * surf_normal).sum(dim=0))[None]
+        normal_loss = lambda_normal * normal_error.mean()
+        if dataset.w_normal_prior:
             prior_normal = viewpoint_cam.normal * (rend_alpha).detach()
             prior_normal_mask = viewpoint_cam.normal_mask[0]
 
@@ -189,12 +191,9 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
             normal_prior_error = ranking_loss(normal_prior_error[prior_normal_mask], 
                                               penalize_ratio=1.0, type='mean')
             
-            normal_loss = lambda_normal_prior * normal_prior_error
+            normal_loss += lambda_normal_prior * normal_prior_error
             if lambda_normal_gradient > 0.0:
                 normal_loss += lambda_normal_gradient * normal_gradient_loss(surf_normal, prior_normal)
-        else:
-            normal_error = (1 - (rend_normal * surf_normal).sum(dim=0))[None]
-            normal_loss = lambda_normal * normal_error.mean()
 
         # loss
         total_loss = loss + dist_loss + normal_loss
@@ -247,7 +246,7 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
                     if iteration % opt.opacity_reset_interval == opt.contribution_prune_interval:
                         print("Skipped Pruning for", iteration)
                         continue
-                    prune_low_contribution_gaussians(gaussians, all_cameras[::3], pipe, background, 
+                    prune_low_contribution_gaussians(gaussians, all_cameras, pipe, background, 
                                                      K=1, prune_ratio=opt.contribution_prune_ratio)
                     print(f'Num gs after contribution prune: {len(gaussians.get_xyz)}')
 
