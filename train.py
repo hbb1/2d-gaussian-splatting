@@ -18,6 +18,7 @@ import sys
 import torch.nn.functional as F
 from scene import Scene, GaussianModel, AppearanceModel
 from utils.general_utils import safe_state
+from utils.patchmatch import process_propagation
 import uuid
 from tqdm import tqdm
 from utils.image_utils import psnr, render_net_image
@@ -159,6 +160,10 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
             viewpoint_stack = scene.getTrainCameras().copy()
         viewpoint_idx = randint(0, len(all_cameras)-1)
         viewpoint_cam = all_cameras[viewpoint_idx]
+        # Set intervals for patch match 
+        intervals = [-2, -1, 1, 2]
+        src_idxs = [viewpoint_idx+itv for itv in intervals if ((itv + viewpoint_idx > 0) and (itv + viewpoint_idx < len(viewpoint_stack)))]   
+        depth_loss = process_propagation(viewpoint_stack, viewpoint_cam, gaussians, pipe, background, iteration, opt, src_idxs)
         render_pkg = render(viewpoint_cam, gaussians, pipe, background)
         image, viewspace_point_tensor, visibility_filter, radii = render_pkg["render"], render_pkg["viewspace_points"], render_pkg["visibility_filter"], render_pkg["radii"]
         

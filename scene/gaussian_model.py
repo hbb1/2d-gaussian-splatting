@@ -405,3 +405,73 @@ class GaussianModel:
     def add_densification_stats(self, viewspace_point_tensor, update_filter):
         self.xyz_gradient_accum[update_filter] += torch.norm(viewspace_point_tensor.grad[update_filter], dim=-1, keepdim=True)
         self.denom[update_filter] += 1
+
+
+    def densify_from_depth_propagation(self, viewpoint_cam, propagated_depth, filter_mask):
+        # inverse project pixels into 3D scenes
+        K = viewpoint_cam.K
+        cam2world = viewpoint_cam.world_view_transform.transpose(0, 1).inverse()
+
+        # Get the shape of the depth image
+        height, width = propagated_depth.shape
+        # Create a grid of 2D pixel coordinates
+        y, x = torch.meshgrid(torch.arange(0, height), torch.arange(0, width))
+        # Stack the 2D and depth coordinates to create 3D homogeneous coordinates
+        coordinates = torch.stack([x.to(propagated_depth.device), y.to(propagated_depth.device), torch.ones_like(propagated_depth)], dim=-1)
+        # Reshape the coordinates to (height * width, 3)
+        coordinates = coordinates.view(-1, 3).to(K.device).to(torch.float32)
+        # Reproject the 2D coordinates to 3D coordinates
+        coordinates_3D = (K.inverse() @ coordinates.T).T
+
+        # Multiply by depth
+        coordinates_3D *= propagated_depth.view(-1, 1)
+
+        # convert to the world coordinate
+        world_coordinates_3D = (cam2world[:3, :3] @ coordinates_3D.T).T + cam2world[:3, 3]
+
+        # import open3d as o3d
+        # point_cloud = o3d.geometry.PointCloud()
+        # point_cloud.points = o3d.utility.Vector3dVector(world_coordinates_3D.detach().cpu().numpy())
+        # o3d.io.write_point_cloud("partpc.ply", point_cloud)
+        # exit()
+
+        #mask the points below the confidence threshold
+        #downsample the pixels; 1/4
+        world_coordinates_3D = world_coordinates_3D.view(height, width, 3)
+        world_coordinates_3D_downsampled = world_coordinates_3D[::8, ::8]
+        filter_mask_downsampled = filter_mask[::8, ::8]
+        gt_image = viewpoint_cam.original_image.cuda()
+        gt_image_downsampled = gt_image.permute(1, 2, 0)[::8, ::8]
+
+        world_coordinates_3D_downsampled = world_coordinates_3D_downsampled[filter_mask_downsampled]
+        color_downsampled = gt_image_downsampled[filter_mask_downsampled]
+
+        # initialize gaussians
+        fused_point_cloud = world_coordinates_3D_downsampled
+        fused_color = RGB2SH(color_downsampled)
+        features = torch.zeros((fused_color.shape[0], 3, (self.max_sh_degree + 1) ** 2)).to(fused_color.device)
+        features[:, :3, 0 ] = fused_color
+        features[:, 3:, 1:] = 0.0
+
+        original_point_cloud = self.get_xyz
+        # initialize the scale from the mode, if using the distance to calculate, there are outliers, if using the whole gaussians, it is memory consuming
+        # quantile_scale = torch.quantile(self.get_scaling, 0.5, dim=0)
+        # scales = self.scaling_inverse_activation(quantile_scale.unsqueeze(0).repeat(fused_point_cloud.shape[0], 1))
+        fused_shape = fused_point_cloud.shape[0]
+        all_point_cloud = torch.concat([fused_point_cloud, original_point_cloud], dim=0)
+        all_dist2 = torch.clamp_min(distCUDA2(all_point_cloud), 0.0000001)
+        dist2 = all_dist2[:fused_shape]        
+        scales = torch.log(torch.sqrt(dist2))[...,None].repeat(1, 2)
+        rots = torch.zeros((fused_point_cloud.shape[0], 4), device="cuda")
+        rots[:, 0] = 1
+        opacities = inverse_sigmoid(1.0 * torch.ones((fused_point_cloud.shape[0], 1), dtype=torch.float, device="cuda"))
+        
+        new_xyz = nn.Parameter(fused_point_cloud.requires_grad_(True))
+        new_features_dc = nn.Parameter(features[:,:,0:1].transpose(1, 2).contiguous().requires_grad_(True))
+        new_features_rest = nn.Parameter(features[:,:,1:].transpose(1, 2).contiguous().requires_grad_(True))
+        new_scaling = nn.Parameter(scales.requires_grad_(True))
+        new_rotation = nn.Parameter(rots.requires_grad_(True))
+        new_opacity = nn.Parameter(opacities.requires_grad_(True))
+
+        #update gaussians
+        self.densification_postfix(new_xyz, new_features_dc, new_features_rest, new_opacity, new_scaling, new_rotation)
