@@ -71,6 +71,25 @@ def getProjectionMatrix(znear, zfar, fovX, fovY):
     P[2, 3] = -(zfar * znear) / (zfar - znear)
     return P
 
+def generate_K(width, height, fovX, fovY, principal_point_ndc):
+    # Calculate focal lengths
+    focal_x = fov2focal(fovX, width)
+    focal_y = fov2focal(fovY, height)
+
+    # Calculate principal point
+    cx = width * principal_point_ndc[0]
+    cy = height * principal_point_ndc[1]
+
+    # Create the K matrix
+    K = torch.zeros(3, 3)
+    K[0, 0] = focal_x
+    K[1, 1] = focal_y
+    K[0, 2] = cx
+    K[1, 2] = cy
+    K[2, 2] = 1.0
+
+    return K
+
 def getProjectionMatrixShift(znear, zfar, fovX, fovY, width, height, principal_point_ndc):
     tanHalfFovY = math.tan((fovY / 2))
     tanHalfFovX = math.tan((fovX / 2))

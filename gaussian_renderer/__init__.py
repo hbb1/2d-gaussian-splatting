@@ -159,6 +159,7 @@ def render(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, 
     rets.update({
             'rend_alpha': render_alpha,
             'rend_normal': render_normal,
+            'rend_depth': render_depth_expected,
             'rend_dist': render_dist,
             'surf_depth': surf_depth,
             'surf_normal_expected': surf_normal_expected,
