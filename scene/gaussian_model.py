@@ -21,6 +21,37 @@ from simple_knn._C import distCUDA2
 from utils.graphics_utils import BasicPointCloud
 from utils.general_utils import strip_symmetric, build_scaling_rotation
 
+# adopted from https://github.com/turandai/gaussian_surfels/blob/main/utils/general_utils.py
+def normal2rotation(n):
+    # construct a random rotation matrix from normal
+    # it would better be positive definite and orthogonal
+    n = torch.nn.functional.normalize(n)
+    w0 = torch.tensor([[1, 0, 0]]).expand(n.shape).to(n.device)
+    R0 = w0 - torch.sum(w0 * n, -1, True) * n
+    R0 *= torch.sign(R0[:, :1])
+    R0 = torch.nn.functional.normalize(R0)
+    R1 = torch.cross(n, R0)
+    
+    R1 *= torch.sign(R1[:, 1:2]) * torch.sign(n[:, 2:])
+    R = torch.stack([R0, R1, n], -1)
+    q = rotmat2quaternion(R)
+
+    return q
+
+def rotmat2quaternion(R, normalize=False):
+    tr = R[:, 0, 0] + R[:, 1, 1] + R[:, 2, 2] + 1e-6
+    r = torch.sqrt(1 + tr) / 2
+    # print(torch.sum(torch.isnan(r)))
+    q = torch.stack([
+        r,
+        (R[:, 2, 1] - R[:, 1, 2]) / (4 * r),
+        (R[:, 0, 2] - R[:, 2, 0]) / (4 * r),
+        (R[:, 1, 0] - R[:, 0, 1]) / (4 * r)
+    ], -1)
+    if normalize:
+        q = torch.nn.functional.normalize(q, dim=-1)
+    return q
+
 class GaussianModel:
 
     def setup_functions(self):
@@ -407,7 +438,7 @@ class GaussianModel:
         self.denom[update_filter] += 1
 
 
-    def densify_from_depth_propagation(self, viewpoint_cam, propagated_depth, filter_mask):
+    def densify_from_depth_propagation(self, viewpoint_cam, propagated_depth, propagated_normal, filter_mask):
         # inverse project pixels into 3D scenes
         K = viewpoint_cam.K
         cam2world = viewpoint_cam.world_view_transform.transpose(0, 1).inverse()
@@ -429,22 +460,21 @@ class GaussianModel:
         # convert to the world coordinate
         world_coordinates_3D = (cam2world[:3, :3] @ coordinates_3D.T).T + cam2world[:3, 3]
 
-        # import open3d as o3d
-        # point_cloud = o3d.geometry.PointCloud()
-        # point_cloud.points = o3d.utility.Vector3dVector(world_coordinates_3D.detach().cpu().numpy())
-        # o3d.io.write_point_cloud("partpc.ply", point_cloud)
-        # exit()
-
         #mask the points below the confidence threshold
         #downsample the pixels; 1/4
         world_coordinates_3D = world_coordinates_3D.view(height, width, 3)
-        world_coordinates_3D_downsampled = world_coordinates_3D[::8, ::8]
-        filter_mask_downsampled = filter_mask[::8, ::8]
+        world_coordinates_3D_downsampled = world_coordinates_3D[::4, ::4]
+        filter_mask_downsampled = filter_mask[::4, ::4]
         gt_image = viewpoint_cam.original_image.cuda()
-        gt_image_downsampled = gt_image.permute(1, 2, 0)[::8, ::8]
+        gt_image_downsampled = gt_image.permute(1, 2, 0)[::4, ::4]
 
         world_coordinates_3D_downsampled = world_coordinates_3D_downsampled[filter_mask_downsampled]
         color_downsampled = gt_image_downsampled[filter_mask_downsampled]
+
+        # Compute world scale
+        fx, fy = K[0, 0] / 4, K[1, 1] / 4  # Assuming K is the camera intrinsic matrix
+        world_scale = propagated_depth[::4, ::4][filter_mask_downsampled] / ((fx + fy) / 2)
+        world_normal = propagated_normal[::4, ::4][filter_mask_downsampled]
 
         # initialize gaussians
         fused_point_cloud = world_coordinates_3D_downsampled
@@ -454,17 +484,9 @@ class GaussianModel:
         features[:, 3:, 1:] = 0.0
 
         original_point_cloud = self.get_xyz
-        # initialize the scale from the mode, if using the distance to calculate, there are outliers, if using the whole gaussians, it is memory consuming
-        # quantile_scale = torch.quantile(self.get_scaling, 0.5, dim=0)
-        # scales = self.scaling_inverse_activation(quantile_scale.unsqueeze(0).repeat(fused_point_cloud.shape[0], 1))
-        fused_shape = fused_point_cloud.shape[0]
-        all_point_cloud = torch.concat([fused_point_cloud, original_point_cloud], dim=0)
-        all_dist2 = torch.clamp_min(distCUDA2(all_point_cloud), 0.0000001)
-        dist2 = all_dist2[:fused_shape]        
-        scales = torch.log(torch.sqrt(dist2))[...,None].repeat(1, 2)
-        rots = torch.zeros((fused_point_cloud.shape[0], 4), device="cuda")
-        rots[:, 0] = 1
-        opacities = inverse_sigmoid(1.0 * torch.ones((fused_point_cloud.shape[0], 1), dtype=torch.float, device="cuda"))
+        scales = torch.log(world_scale)[..., None].repeat(1, 2)
+        rots = normal2rotation(world_normal).to(scales.device)
+        opacities = inverse_sigmoid(0.5 * torch.ones((fused_point_cloud.shape[0], 1), dtype=torch.float, device="cuda"))
         
         new_xyz = nn.Parameter(fused_point_cloud.requires_grad_(True))
         new_features_dc = nn.Parameter(features[:,:,0:1].transpose(1, 2).contiguous().requires_grad_(True))
