@@ -1,8 +1,0 @@
-PatchMatch.cpp
-Propagation.cu
-pro.cpp
-setup.py
-gaussianpro.egg-info/PKG-INFO
-gaussianpro.egg-info/SOURCES.txt
-gaussianpro.egg-info/dependency_links.txt
-gaussianpro.egg-info/top_level.txt
