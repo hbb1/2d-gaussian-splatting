@@ -61,6 +61,7 @@ private:
     int num_images;
     std::vector<cv::Mat> images;
     std::vector<cv::Mat> depths;
+    std::vector<cv::Mat> normals;
     std::vector<Camera> cameras;
     cudaTextureObjects texture_objects_host;
     cudaTextureObjects texture_depths_host;

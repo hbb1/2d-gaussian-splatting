@@ -325,6 +325,9 @@ void PatchMatch::InuputInitialization(torch::Tensor images_cuda, torch::Tensor i
     cv::Mat ref_depth = tensorToMat(depth_cuda);
     depths.push_back(ref_depth);
 
+    cv::Mat ref_normal = tensorToMat(normal_cuda);
+    normals.push_back(ref_normal);
+
     int num_src_images = images_cuda.size(0);
     for (int i = 1; i < num_src_images; ++i) {
         cv::Mat src_image_color = tensorToMat(images_cuda[i]);
@@ -420,8 +423,19 @@ void PatchMatch::CudaSpaceInitialization()
     cudaMalloc((void**)&cameras_cuda, sizeof(Camera) * (num_images));
     cudaMemcpy(cameras_cuda, &cameras[0], sizeof(Camera) * (num_images), cudaMemcpyHostToDevice);
 
-    plane_hypotheses_host = new float4[cameras[0].height * cameras[0].width];
-    cudaMalloc((void**)&plane_hypotheses_cuda, sizeof(float4) * (cameras[0].height * cameras[0].width));
+    int total_pixels = cameras[0].height * cameras[0].width;
+    plane_hypotheses_host = new float4[total_pixels];
+    for (int row = 0; row < cameras[0].height; ++row) {
+        for (int col = 0; col < cameras[0].width; ++col) {
+            int center = row * cameras[0].width + col;
+            cv::Vec3f normal = normals[0].at<cv::Vec3f>(row, col);
+            float depth = depths[0].at<float>(row, col);
+            float4 plane_hypothesis = {normal[0], normal[1], normal[2], depth};
+            plane_hypotheses_host[center] = plane_hypothesis;
+        }
+    }
+    cudaMalloc((void**)&plane_hypotheses_cuda, sizeof(float4) * total_pixels);
+    cudaMemcpy(plane_hypotheses_cuda, plane_hypotheses_host, sizeof(float4) * total_pixels, cudaMemcpyHostToDevice);
 
     costs_host = new float[cameras[0].height * cameras[0].width];
     cudaMalloc((void**)&costs_cuda, sizeof(float) * (cameras[0].height * cameras[0].width));

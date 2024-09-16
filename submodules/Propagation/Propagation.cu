@@ -516,18 +516,12 @@ __global__ void RandomInitialization(cudaTextureObjects *texture_objects, Camera
     const int center = p.y * width + p.x;
     curand_init(clock64(), p.y, p.x, &rand_states[center]);
 
-    if (!params.geom_consistency) {
-        plane_hypotheses[center] = GenerateRandomPlaneHypothesis(cameras[0], p, &rand_states[center], params.depth_min, params.depth_max, depths[center]);
-        costs[center] = ComputeMultiViewInitialCostandSelectedViews(texture_objects[0].images, cameras, p, plane_hypotheses[center], &selected_views[center], params);
-    }
-    else {
-        float4 plane_hypothesis = plane_hypotheses[center];
-        plane_hypothesis = TransformNormal2RefCam(cameras[0], plane_hypothesis);
-        float depth = plane_hypothesis.w;
-        plane_hypothesis.w = GetDistance2Origin(cameras[0], p, depth, plane_hypothesis);
-        plane_hypotheses[center] = plane_hypothesis;
-        costs[center] = ComputeMultiViewInitialCostandSelectedViews(texture_objects[0].images, cameras, p, plane_hypotheses[center], &selected_views[center], params);
-    }
+    float4 plane_hypothesis = plane_hypotheses[center];
+    plane_hypothesis = TransformNormal2RefCam(cameras[0], plane_hypothesis);
+    float depth = plane_hypothesis.w;
+    plane_hypothesis.w = GetDistance2Origin(cameras[0], p, depth, plane_hypothesis);
+    plane_hypotheses[center] = plane_hypothesis;
+    costs[center] = ComputeMultiViewInitialCostandSelectedViews(texture_objects[0].images, cameras, p, plane_hypotheses[center], &selected_views[center], params);
 }
 
 __device__ void PlaneHypothesisRefinement(const cudaTextureObject_t *images, const cudaTextureObject_t *depth_images, const Camera *cameras, float4 *plane_hypothesis, float *depth, float *cost, curandState *rand_state, const float *view_weights, const float weight_norm, const int2 p, const PatchMatchParams params)
@@ -535,22 +529,20 @@ __device__ void PlaneHypothesisRefinement(const cudaTextureObject_t *images, con
     float perturbation = 0.02f;
 
     float depth_rand = curand_uniform(rand_state) * (params.depth_max - params.depth_min) + params.depth_min;
-    float4 plane_hypothesis_rand = GenerateRandomNormal(cameras[0], p, rand_state, *depth);
     float depth_perturbed = *depth;
     const float depth_min_perturbed = (1 - perturbation) * depth_perturbed;
     const float depth_max_perturbed = (1 + perturbation) * depth_perturbed;
     do {
         depth_perturbed = curand_uniform(rand_state) * (depth_max_perturbed - depth_min_perturbed) + depth_min_perturbed;
     } while (depth_perturbed < params.depth_min && depth_perturbed > params.depth_max);
-    float4 plane_hypothesis_perturbed = GeneratePerturbedNormal(cameras[0], p, *plane_hypothesis, rand_state, perturbation * M_PI);
 
-    const int num_planes = 5;
-    float depths[num_planes] = {depth_rand, *depth, depth_rand, *depth, depth_perturbed};
-    float4 normals[num_planes] = {*plane_hypothesis, plane_hypothesis_rand, plane_hypothesis_rand, plane_hypothesis_perturbed, *plane_hypothesis};
+    const int num_planes = 2;  // Reduced from 5 to 2 as we're only testing current and perturbed depth
+    float depths[num_planes] = {*depth, depth_perturbed};
+    float4 normal = make_float4(plane_hypothesis->x, plane_hypothesis->y, plane_hypothesis->z, 0);  // Keep the normal fixed
 
     for (int i = 0; i < num_planes; ++i) {
         float cost_vector[32] = {2.0f};
-        float4 temp_plane_hypothesis = normals[i];
+        float4 temp_plane_hypothesis = normal;
         temp_plane_hypothesis.w = GetDistance2Origin(cameras[0], p, depths[i], temp_plane_hypothesis);
         ComputeMultiViewCostVector(images, cameras, p, temp_plane_hypothesis, cost_vector, params);
 
@@ -567,10 +559,9 @@ __device__ void PlaneHypothesisRefinement(const cudaTextureObject_t *images, con
         }
         temp_cost /= weight_norm;
 
-        float depth_before = ComputeDepthfromPlaneHypothesis(cameras[0], temp_plane_hypothesis, p);
-        if (depth_before >= params.depth_min && depth_before <= params.depth_max && temp_cost < *cost) {
-            *depth = depth_before;
-            *plane_hypothesis = temp_plane_hypothesis;
+        if (temp_cost < *cost) {
+            *depth = depths[i];
+            plane_hypothesis->w = temp_plane_hypothesis.w;
             *cost = temp_cost;
         }
     }
@@ -852,22 +843,25 @@ __device__ void CheckerboardPropagation(const cudaTextureObject_t *images, const
 
     float final_costs[8] = {0.0f};
     for (int i = 0; i < 8; ++i) {
-        for (int j = 0; j < params.num_images - 1; ++j) {
-            if (view_weights[j] > 0) {
-                if (params.geom_consistency) {
-                    if (flag[i]) {
-                        final_costs[i] += view_weights[j] * (cost_array[i][j] + 0.1f * ComputeGeomConsistencyCost(depths[j+1], cameras[0], cameras[j+1], plane_hypotheses[positions[i]], p));
+        if (flag[i]) {
+            float4 temp_plane_hypothesis = plane_hypotheses[center];
+            temp_plane_hypothesis.w = GetDistance2Origin(cameras[0], p, ComputeDepthfromPlaneHypothesis(cameras[0], plane_hypotheses[positions[i]], p), temp_plane_hypothesis);
+            
+            for (int j = 0; j < params.num_images - 1; ++j) {
+                if (view_weights[j] > 0) {
+                    if (params.geom_consistency) {
+                        final_costs[i] += view_weights[j] * (cost_array[i][j] + 0.1f * ComputeGeomConsistencyCost(depths[j+1], cameras[0], cameras[j+1], temp_plane_hypothesis, p));
                     }
                     else {
-                        final_costs[i] += view_weights[j] * (cost_array[i][j] + 0.1f * 5.0f);
+                        final_costs[i] += view_weights[j] * cost_array[i][j];
                     }
                 }
-                else {
-                    final_costs[i] += view_weights[j] * cost_array[i][j];
-                }
             }
+            final_costs[i] /= weight_norm;
         }
-        final_costs[i] /= weight_norm;
+        else {
+            final_costs[i] = FLT_MAX;
+        }
     }
 
     const int min_cost_idx = FindMinCostIndex(final_costs, 8);
