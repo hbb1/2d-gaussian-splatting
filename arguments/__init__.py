@@ -99,6 +99,13 @@ class OptimizationParams(ParamGroup):
         self.densify_until_iter = 15_000
         self.densify_grad_threshold = 0.0002
         
+        self.propagation_interval = 20
+        self.depth_error_min_threshold = 0.8
+        self.depth_error_max_threshold = 1.0
+        self.propagation_begin = 9000
+        self.propagation_after = 15000
+        self.patch_size = 11
+        
         self.contribution_prune_from_iter = 500
         self.contribution_prune_interval = 300
         self.contribution_prune_ratio = 0.1
