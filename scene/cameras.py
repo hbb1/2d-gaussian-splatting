@@ -12,7 +12,7 @@
 import torch
 from torch import nn
 import numpy as np
-from utils.graphics_utils import getWorld2View2, getProjectionMatrixShift
+from utils.graphics_utils import getWorld2View2, getProjectionMatrixShift, generate_K
 
 class Camera(nn.Module):
     def __init__(self, colmap_id, R, T, FoVx, FoVy, image, gt_alpha_mask,
@@ -54,6 +54,8 @@ class Camera(nn.Module):
         else:
             self.original_image *= torch.ones((1, self.image_height, self.image_width), device=self.data_device)
             self.gt_alpha_mask = None
+
+        self.K = generate_K(fovX=self.FoVx, fovY=self.FoVy, width=self.image_width, height=self.image_height, principal_point_ndc=principal_point_ndc).to(self.data_device).to(torch.float32)
 
         self.zfar = 100.0
         self.znear = 0.01
