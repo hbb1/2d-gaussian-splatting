@@ -106,6 +106,8 @@ class OptimizationParams(ParamGroup):
         self.propagation_after = 15000
         self.patch_size = 11
         
+        self.pixel_dense_from_iter = 30000
+        
         self.contribution_prune_from_iter = 500
         self.contribution_prune_interval = 300
         self.contribution_prune_ratio = 0.1

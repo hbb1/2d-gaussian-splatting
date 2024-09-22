@@ -107,18 +107,18 @@ def render(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, 
     )
     
     if record_transmittance:
-        transmittance_sum, num_covered_pixels, radii = output
-        transmittance = transmittance_sum / (num_covered_pixels + 1e-6)
-        return transmittance
+        rendered_image, radii, allmap, transmittance_avg, num_covered_pixels = output
     else:
         rendered_image, radii, allmap = output
-        
+        transmittance_avg = num_covered_pixels = None
     # Those Gaussians that were frustum culled or had a radius of 0 were not visible.
     # They will be excluded from value updates used in the splitting criteria.
     rets =  {"render": rendered_image,
             "viewspace_points": means2D,
             "visibility_filter" : radii > 0,
             "radii": radii,
+            "pixels_num":num_covered_pixels,
+            "transmittance_avg": transmittance_avg
     }
 
 
