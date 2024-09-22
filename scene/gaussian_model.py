@@ -364,6 +364,7 @@ class GaussianModel:
         "scaling" : new_scaling,
         "rotation" : new_rotation}
 
+        self.max_radii2D = torch.cat([self.max_radii2D, torch.zeros((new_xyz.shape[0]), device="cuda")], dim=0)
         optimizable_tensors = self.cat_tensors_to_optimizer(d)
         self._xyz = optimizable_tensors["xyz"]
         self._features_dc = optimizable_tensors["f_dc"]
@@ -374,7 +375,6 @@ class GaussianModel:
 
         self.xyz_gradient_accum = torch.zeros((self.get_xyz.shape[0], 1), device="cuda")
         self.denom = torch.zeros((self.get_xyz.shape[0], 1), device="cuda")
-        self.max_radii2D = torch.zeros((self.get_xyz.shape[0]), device="cuda")
 
     def densify_and_split(self, grads, grad_threshold, scene_extent, N=2):
         n_init_points = self.get_xyz.shape[0]
@@ -426,13 +426,53 @@ class GaussianModel:
 
         prune_mask = (self.get_opacity < min_opacity).squeeze()
         if max_screen_size:
-            big_points_vs = self.max_radii2D > max_screen_size
             big_points_ws = self.get_scaling.max(dim=1).values > 0.1 * extent
-            prune_mask = torch.logical_or(torch.logical_or(prune_mask, big_points_vs), big_points_ws)
+            prune_mask = torch.logical_or(prune_mask, big_points_ws)
+            
         self.prune_points(prune_mask)
-
+        if max_screen_size:
+            self.split_big_points(max_screen_size)
         torch.cuda.empty_cache()
+        
+    def split_big_points(self, max_screen_size):
+        big_points_mask = self.max_radii2D > max_screen_size
+        big_point_indices = torch.where(big_points_mask)[0]
 
+        if big_point_indices.numel() == 0:
+            return  # No points to split
+
+        # Calculate split numbers based on max_radii2D
+        split_numbers = torch.ceil(self.max_radii2D[big_points_mask] / max_screen_size).long()
+        total_new_points = split_numbers.sum().item()
+        print(f"Generting {total_new_points} new points")
+        
+        # Create prune filter
+        prune_filter = torch.zeros(self.get_xyz.shape[0] + total_new_points, device="cuda", dtype=bool)
+        prune_filter[:self.get_xyz.shape[0]] = big_points_mask
+        
+        index_list = torch.arange(split_numbers.size(0), device="cuda").repeat_interleave(split_numbers)
+
+        stds = self.get_scaling[big_point_indices[index_list]]
+        stds = torch.cat([stds, torch.zeros_like(stds[:, :1])], dim=-1)
+        means = torch.zeros_like(stds)
+        samples = torch.normal(mean=means, std=stds)
+
+        rots = build_rotation(self._rotation[big_point_indices[index_list]])
+        
+        new_xyz = torch.bmm(rots, samples.unsqueeze(-1)).squeeze(-1) + self.get_xyz[big_point_indices[index_list]]
+        new_scaling = self.scaling_inverse_activation(self.get_scaling[big_point_indices[index_list]] / (0.8 * split_numbers[index_list].unsqueeze(1)))
+        new_rotation = self._rotation[big_point_indices[index_list]]
+        new_features_dc = self._features_dc[big_point_indices[index_list]]
+        new_features_rest = self._features_rest[big_point_indices[index_list]]
+        new_opacity = self._opacity[big_point_indices[index_list]]
+
+        self.densification_postfix(new_xyz, new_features_dc, new_features_rest, new_opacity, new_scaling, new_rotation)
+
+        self.prune_points(prune_filter)
+
+        # Reset max_radii2D for the new points
+        self.max_radii2D = torch.zeros((self.get_xyz.shape[0]), device="cuda")
+        
     def add_densification_stats(self, viewspace_point_tensor, update_filter, pixels):
         if pixels is not None:
             self.xyz_gradient_accum[update_filter] += torch.norm(viewspace_point_tensor.grad[update_filter], dim=-1, keepdim=True) * pixels[update_filter].unsqueeze(-1)
