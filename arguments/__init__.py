@@ -93,6 +93,9 @@ class OptimizationParams(ParamGroup):
         self.lambda_normal_gradient = 0.1
         self.opacity_cull = 0.05
 
+        self.split_interval = 500
+        self.max_screen_size = 20
+
         self.densification_interval = 100
         self.opacity_reset_interval = 3000
         self.densify_from_iter = 500

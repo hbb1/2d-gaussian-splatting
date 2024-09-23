@@ -242,13 +242,16 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
             # Densification
             if iteration < opt.densify_until_iter:
                 gaussians.max_radii2D[visibility_filter] = torch.max(gaussians.max_radii2D[visibility_filter], 
-                                                                     radii[visibility_filter] * (render_pkg["transmittance_avg"][visibility_filter] > 0.1))
+                                                                     radii[visibility_filter] * (render_pkg["transmittance_avg"][visibility_filter] > 0.01))
                 gaussians.add_densification_stats(viewspace_point_tensor, visibility_filter, None)
 
                 if iteration > opt.densify_from_iter and iteration % opt.densification_interval == 0:
-                    size_threshold = 20 if iteration > opt.opacity_reset_interval else None
-                    gaussians.densify_and_prune(opt.densify_grad_threshold, opt.opacity_cull, scene.cameras_extent, size_threshold)
+                    prune_big_points = True if iteration > opt.opacity_reset_interval else False
+                    gaussians.densify_and_prune(opt.densify_grad_threshold, opt.opacity_cull, scene.cameras_extent, prune_big_points)
                 
+                if iteration > opt.densify_from_iter and iteration % opt.split_interval == 0:
+                    gaussians.split_big_points(opt.max_screen_size)
+                    
                 if iteration > opt.contribution_prune_from_iter and iteration % opt.contribution_prune_interval == 0:
                     if iteration % opt.opacity_reset_interval == opt.contribution_prune_interval:
                         print("Skipped Pruning for", iteration)
