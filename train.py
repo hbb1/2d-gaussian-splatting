@@ -164,7 +164,7 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
         intervals = [-2, -1, 1, 2]
         src_idxs = [viewpoint_idx+itv for itv in intervals if ((itv + viewpoint_idx > 0) and (itv + viewpoint_idx < len(viewpoint_stack)))]   
         depth_loss = process_propagation(viewpoint_stack, viewpoint_cam, gaussians, pipe, background, iteration, opt, src_idxs)
-        render_pkg = render(viewpoint_cam, gaussians, pipe, background, record_transmittance=(iteration > opt.pixel_dense_from_iter) & (iteration < opt.densify_until_iter))
+        render_pkg = render(viewpoint_cam, gaussians, pipe, background, record_transmittance=(iteration < opt.densify_until_iter))
         image, viewspace_point_tensor, visibility_filter, radii = render_pkg["render"], render_pkg["viewspace_points"], render_pkg["visibility_filter"], render_pkg["radii"]
         
         gt_image = viewpoint_cam.original_image.cuda()
@@ -181,7 +181,7 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
         dist_loss = lambda_dist * (rend_dist).mean()
         
         rend_normal  = render_pkg['rend_normal']
-        surf_normal = render_pkg['surf_normal']
+        surf_normal_median = render_pkg['surf_normal']
         surf_normal_expected = render_pkg['surf_normal_expected']
         rend_alpha = render_pkg['rend_alpha']
         
@@ -196,9 +196,10 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
             
             normal_loss = lambda_normal_prior * normal_prior_error
             if lambda_normal_gradient > 0.0:
-                normal_loss += lambda_normal_gradient * normal_gradient_loss(surf_normal, prior_normal)
+                normal_loss += lambda_normal_gradient * normal_gradient_loss(surf_normal_median, prior_normal)
         else:
-            normal_error = (1 - (rend_normal * surf_normal).sum(dim=0))[None]
+            normal_error = 0.6 * (1 - (rend_normal * surf_normal_median).sum(dim=0))[None] + \
+                            0.4 * (1 - (rend_normal * surf_normal_expected).sum(dim=0))[None]
             normal_loss = lambda_normal * normal_error.mean()
 
         # loss
@@ -241,13 +242,17 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
 
             # Densification
             if iteration < opt.densify_until_iter:
-                gaussians.max_radii2D[visibility_filter] = torch.max(gaussians.max_radii2D[visibility_filter], radii[visibility_filter])
-                gaussians.add_densification_stats(viewspace_point_tensor, visibility_filter, render_pkg["pixels_num"])
+                gaussians.max_radii2D[visibility_filter] = torch.max(gaussians.max_radii2D[visibility_filter], 
+                                                                     radii[visibility_filter] * (render_pkg["transmittance_avg"][visibility_filter] > 0.01))
+                gaussians.add_densification_stats(viewspace_point_tensor, visibility_filter, None)
 
                 if iteration > opt.densify_from_iter and iteration % opt.densification_interval == 0:
-                    size_threshold = 20 if iteration > opt.opacity_reset_interval else None
-                    gaussians.densify_and_prune(opt.densify_grad_threshold, opt.opacity_cull, scene.cameras_extent, size_threshold)
+                    prune_big_points = True if iteration > opt.opacity_reset_interval else False
+                    gaussians.densify_and_prune(opt.densify_grad_threshold, opt.opacity_cull, scene.cameras_extent, prune_big_points)
                 
+                if iteration > opt.densify_from_iter and iteration % opt.split_interval == 0:
+                    gaussians.split_big_points(opt.max_screen_size)
+                    
                 if iteration > opt.contribution_prune_from_iter and iteration % opt.contribution_prune_interval == 0:
                     if iteration % opt.opacity_reset_interval == opt.contribution_prune_interval:
                         print("Skipped Pruning for", iteration)
