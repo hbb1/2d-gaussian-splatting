@@ -87,7 +87,7 @@ class OptimizationParams(ParamGroup):
         self.appearance_network_lr = 0.001
         self.percent_dense = 0.01
         self.lambda_dssim = 0.2
-        self.lambda_dist = 10.
+        self.lambda_dist = 0.
         self.lambda_normal = 0.05
         self.lambda_normal_prior = 0.25
         self.lambda_normal_gradient = 0.1

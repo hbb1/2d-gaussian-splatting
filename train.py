@@ -181,7 +181,7 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
         dist_loss = lambda_dist * (rend_dist).mean()
         
         rend_normal  = render_pkg['rend_normal']
-        surf_normal = render_pkg['surf_normal']
+        surf_normal_median = render_pkg['surf_normal']
         surf_normal_expected = render_pkg['surf_normal_expected']
         rend_alpha = render_pkg['rend_alpha']
         
@@ -196,9 +196,10 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
             
             normal_loss = lambda_normal_prior * normal_prior_error
             if lambda_normal_gradient > 0.0:
-                normal_loss += lambda_normal_gradient * normal_gradient_loss(surf_normal, prior_normal)
+                normal_loss += lambda_normal_gradient * normal_gradient_loss(surf_normal_median, prior_normal)
         else:
-            normal_error = (1 - (rend_normal * surf_normal).sum(dim=0))[None]
+            normal_error = 0.6 * (1 - (rend_normal * surf_normal_median).sum(dim=0))[None] + \
+                            0.4 * (1 - (rend_normal * surf_normal_expected).sum(dim=0))[None]
             normal_loss = lambda_normal * normal_error.mean()
 
         # loss
