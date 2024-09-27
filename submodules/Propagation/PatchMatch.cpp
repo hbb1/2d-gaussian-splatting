@@ -396,17 +396,13 @@ void PatchMatch::CudaSpaceInitialization()
     cudaMalloc((void**)&cameras_cuda, sizeof(Camera) * (num_images));
     cudaMemcpy(cameras_cuda, &cameras[0], sizeof(Camera) * (num_images), cudaMemcpyHostToDevice);
 
-    int total_pixels = cameras[0].height * cameras[0].width;
-    plane_hypotheses_host = new float4[total_pixels];
-    for (int row = 0; row < cameras[0].height; ++row) {
-        for (int col = 0; col < cameras[0].width; ++col) {
-            int center = row * cameras[0].width + col;
-            torch::Tensor normal = normals[0][row][col];
-            float depth = depths[0][row][col].item<float>();
-            float4 plane_hypothesis = {normal[0].item<float>(), normal[1].item<float>(), normal[2].item<float>(), depth};
-            plane_hypotheses_host[center] = plane_hypothesis;
-        }
-    }
+    int total_pixels = cameras[0].height * cameras[0].width;    
+    // Concatenate normals and depths into a single tensor
+    torch::Tensor plane_hypotheses_tensor = torch::cat({
+        normals[0].view({total_pixels, 3}),
+        depths[0].view({total_pixels, 1})
+    }, 1);
+    plane_hypotheses_host = plane_hypotheses_tensor.data_ptr<float4>();
     cudaMalloc((void**)&plane_hypotheses_cuda, sizeof(float4) * total_pixels);
     cudaMemcpy(plane_hypotheses_cuda, plane_hypotheses_host, sizeof(float4) * total_pixels, cudaMemcpyHostToDevice);
 
