@@ -173,27 +173,26 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
         
         # regularization
         lambda_normal = opt.lambda_normal if iteration > 7000 else 0.0
-        # lambda_depth = opt.lambda_depth if iteration > 3000 else 0.0
-        lambda_depth = 1
+        lambda_depth = opt.lambda_depth if iteration > 3000 else 0.0
         lambda_dist = opt.lambda_dist if iteration > 3000 else 0.0
         lambda_normal_prior = opt.lambda_normal_prior if iteration > 15000 else 0.0
         lambda_normal_gradient = opt.lambda_normal_gradient if iteration > 15000 else 0.0
         
-        depth_loss = torch.tensor(0)
-        normal_loss = torch.tensor(0)
-        normal_prior_loss = torch.tensor(0)
+        depth_loss = torch.tensor(0.).to("cuda")
+        normal_loss = torch.tensor(0.).to("cuda")
+        normal_prior_loss = torch.tensor(0.).to("cuda")
         
         rend_dist = render_pkg["rend_dist"]
         rend_depth = render_pkg["rend_depth"]
         surf_depth = render_pkg["surf_depth"]
         dist_loss = lambda_dist * (rend_dist).mean()
-        print(viewpoint_cam.depth_prior)
+
         if lambda_depth > 0 and viewpoint_cam.depth_prior is not None:
             depth_error = 0.6 * (surf_depth - viewpoint_cam.depth_prior).abs() + \
                             0.4 * (rend_depth - viewpoint_cam.depth_prior).abs()
-            depth_mask = viewpoint_cam.depth_mask
+            depth_mask = viewpoint_cam.depth_mask.unsqueeze(0)
             valid_depth_sum = depth_mask.sum() + 1e-5
-            depth_loss += lambda_depth * depth_error[viewpoint_cam.depth_mask].sum() / valid_depth_sum    
+            depth_loss += lambda_depth * (depth_error[depth_mask].sum() / valid_depth_sum)
             print(depth_loss)
         rend_normal  = render_pkg['rend_normal']
         surf_normal_median = render_pkg['surf_normal']

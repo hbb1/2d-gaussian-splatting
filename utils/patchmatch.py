@@ -38,7 +38,7 @@ def process_propagation(viewpoint_stack, viewpoint_cam, gaussians, pipe, backgro
                 src_K = src_viewpoint.K
                 src_render_pkg = render(src_viewpoint, gaussians, pipe, background)
                 src_projected_depth = src_render_pkg["rend_depth"] / src_render_pkg['rend_alpha']
-                src_rendered_normal = src_render_pkg["rend_normal"] / src_render_pkg['rend_alpha'] if src_viewpoint.normal is None else src_viewpoint.normal
+                src_rendered_normal = src_render_pkg["rend_normal"] / src_render_pkg['rend_alpha'] if src_viewpoint.normal_prior is None else src_viewpoint.normal_prior
                 R_w2c = torch.tensor(src_viewpoint.R.T).cuda().to(torch.float32)
                 src_rendered_normal_cam = (R_w2c @ src_rendered_normal.view(3, -1)).view(3, src_viewpoint.image_height, src_viewpoint.image_width)                
                 
@@ -56,7 +56,7 @@ def process_propagation(viewpoint_stack, viewpoint_cam, gaussians, pipe, backgro
                 
             propagated_mask = valid_mask & error_mask & cost_mask
             propagated_mask = propagated_mask.squeeze(0)
-            depth_mask = valid_mask & cost_mask
+            depth_mask = (valid_mask & cost_mask).squeeze(0)
             projected_depth = projected_depth.squeeze(0)
             
             viewpoint_cam.depth_prior = projected_depth

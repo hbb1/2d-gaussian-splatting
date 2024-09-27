@@ -168,15 +168,6 @@ def patchmatch_propagation(viewpoint_cam, rendered_depth, rendered_normal, viewp
         poses.append(src_viewpoint.world_view_transform.transpose(0, 1))
         depth_intervals.append(depth_interval)
     
-    # ### vis rgb depth
-    # for i in range(len(images)):
-    #     cv2.imwrite(str(i) + "rgb.jpg", images[i].cpu().numpy())
-    # print(intrinsics)
-    # print(poses)
-    # print(depth_intervals)
-    # cv2.imwrite("depth.jpg", depth.cpu().numpy())
-    # exit()
-    
     images = torch.stack(images)
     intrinsics = torch.stack(intrinsics)
     poses = torch.stack(poses)

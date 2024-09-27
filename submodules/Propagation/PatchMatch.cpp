@@ -402,7 +402,11 @@ void PatchMatch::CudaSpaceInitialization()
         normals[0].view({total_pixels, 3}),
         depths[0].view({total_pixels, 1})
     }, 1);
-    plane_hypotheses_host = plane_hypotheses_tensor.data_ptr<float4>();
+
+    // TODO: Fix initialization bug
+    // auto plane_hypotheses_float4 = plane_hypotheses_tensor.to(torch::kFloat32).view({-1, 4});
+    // plane_hypotheses_host = reinterpret_cast<float4*>(plane_hypotheses_float4.data_ptr<float>());
+    plane_hypotheses_host = new float4[total_pixels];
     cudaMalloc((void**)&plane_hypotheses_cuda, sizeof(float4) * total_pixels);
     cudaMemcpy(plane_hypotheses_cuda, plane_hypotheses_host, sizeof(float4) * total_pixels, cudaMemcpyHostToDevice);
 
