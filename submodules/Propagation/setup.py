@@ -8,10 +8,6 @@ setup(
     name='gaussianpro',
     ext_modules=[
         CUDAExtension('gaussianpro',
-            include_dirs=['/data/chenyt/Code/opencv346/include', '/usr/local/cuda-11.8/include', '.'],
-            library_dirs=['/data/chenyt/Code/opencv346/lib/', '/data/chenyt/.conda/2dgs/lib'],
-            runtime_library_dirs=['/data/chenyt/Code/opencv346/lib/'],
-            libraries=['opencv_core', 'opencv_imgproc', 'opencv_highgui', 'opencv_imgcodecs'],  
             sources=[
                 'PatchMatch.cpp',
                 'Propagation.cu',

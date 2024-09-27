@@ -13,7 +13,13 @@ import torch
 import math
 import numpy as np
 from typing import NamedTuple
-from gaussianpro import propagate
+try:
+    from gaussianpro import propagate
+    propagation_installed = True
+except:
+    propagation_installed = False
+    print("gaussianpro not installed")
+
 
 class BasicPointCloud(NamedTuple):
     points : np.array
@@ -152,21 +158,8 @@ def patchmatch_propagation(viewpoint_cam, rendered_depth, rendered_normal, viewp
     
     depth = rendered_depth.unsqueeze(-1)
     depth = depth.squeeze(0)
-    normal = torch.zeros_like(depth)
-    # _normal = (rendered_normal.permute(1,2,0) @ (viewpoint_cam.world_view_transform[:3,:3])).permute(2,0,1)
-    # _normal = viewpoint_cam.normal
-    # _normal = (_normal + 1) / 2
-    # _normal = _normal.permute([1, 2, 0])
-    # normal = _normal * 255
-    # normal = normal.to(depth.device)
+    normal = rendered_normal.permute([1, 2, 0])
 
-    #Vis input data
-    # if not os.path.exists("cache/ref_input"):
-    #     os.makedirs("cache/ref_input")
-    # depth_vis = rendered_depth.squeeze(0).detach().cpu().numpy()
-    # normal_vis = normal.permute([2, 0, 1]).cpu()/255
-    # torchvision.utils.save_image(normal_vis, os.path.join("cache/ref_input", 'normal_ref.png'))
-    # imageio.imwrite(os.path.join("cache/ref_input", 'depth_ref.png'), vis_depth(depth_vis)[0])
     
     for idx, src_idx in enumerate(src_idxs):
         src_viewpoint = viewpoint_stack[src_idx]
@@ -174,15 +167,6 @@ def patchmatch_propagation(viewpoint_cam, rendered_depth, rendered_normal, viewp
         intrinsics.append(src_viewpoint.K)
         poses.append(src_viewpoint.world_view_transform.transpose(0, 1))
         depth_intervals.append(depth_interval)
-    
-    # ### vis rgb depth
-    # for i in range(len(images)):
-    #     cv2.imwrite(str(i) + "rgb.jpg", images[i].cpu().numpy())
-    # print(intrinsics)
-    # print(poses)
-    # print(depth_intervals)
-    # cv2.imwrite("depth.jpg", depth.cpu().numpy())
-    # exit()
     
     images = torch.stack(images)
     intrinsics = torch.stack(intrinsics)

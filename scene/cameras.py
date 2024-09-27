@@ -28,6 +28,8 @@ class Camera(nn.Module):
         self.FoVx = FoVx
         self.FoVy = FoVy
         self.image_name = image_name
+        self.depth_prior = None
+        self.depth_mask = None
 
         try:
             self.data_device = torch.device(data_device)
@@ -38,12 +40,12 @@ class Camera(nn.Module):
 
         self.original_image = image.clamp(0.0, 1.0).to(self.data_device)
         if normal is not None:
-            self.normal = normal.to(self.data_device)
-            normal_norm = torch.norm(self.normal, dim=0, keepdim=True)
+            self.normal_prior = normal.to(self.data_device)
+            normal_norm = torch.norm(self.normal_prior, dim=0, keepdim=True)
             self.normal_mask = ~((normal_norm > 1.1) | (normal_norm < 0.9))
-            self.normal = self.normal / normal_norm
+            self.normal_prior = self.normal_prior / normal_norm
         else:
-            self.normal = None
+            self.normal_prior = None
             self.normal_mask = None
         self.image_width = self.original_image.shape[2]
         self.image_height = self.original_image.shape[1]

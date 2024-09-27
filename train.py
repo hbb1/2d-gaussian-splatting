@@ -163,7 +163,7 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
         # Set intervals for patch match 
         intervals = [-2, -1, 1, 2]
         src_idxs = [viewpoint_idx+itv for itv in intervals if ((itv + viewpoint_idx > 0) and (itv + viewpoint_idx < len(viewpoint_stack)))]   
-        depth_loss = process_propagation(viewpoint_stack, viewpoint_cam, gaussians, pipe, background, iteration, opt, src_idxs)
+        process_propagation(viewpoint_stack, viewpoint_cam, gaussians, pipe, background, iteration, opt, src_idxs)
         render_pkg = render(viewpoint_cam, gaussians, pipe, background, record_transmittance=(iteration < opt.densify_until_iter))
         image, viewspace_point_tensor, visibility_filter, radii = render_pkg["render"], render_pkg["viewspace_points"], render_pkg["visibility_filter"], render_pkg["radii"]
         
@@ -173,23 +173,39 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
         
         # regularization
         lambda_normal = opt.lambda_normal if iteration > 7000 else 0.0
+        lambda_depth = opt.lambda_depth if iteration > 3000 else 0.0
         lambda_dist = opt.lambda_dist if iteration > 3000 else 0.0
         lambda_normal_prior = opt.lambda_normal_prior if iteration > 15000 else 0.0
         lambda_normal_gradient = opt.lambda_normal_gradient if iteration > 15000 else 0.0
         
-        rend_dist = render_pkg["rend_dist"]
-        dist_loss = lambda_dist * (rend_dist).mean()
+        depth_loss = torch.tensor(0.).to("cuda")
+        normal_loss = torch.tensor(0.).to("cuda")
+        normal_prior_loss = torch.tensor(0.).to("cuda")
         
+        rend_dist = render_pkg["rend_dist"]
+        rend_depth = render_pkg["rend_depth"]
+        surf_depth = render_pkg["surf_depth"]
+        dist_loss = lambda_dist * (rend_dist).mean()
+
+        if lambda_depth > 0 and viewpoint_cam.depth_prior is not None:
+            depth_error = 0.6 * (surf_depth - viewpoint_cam.depth_prior).abs() + \
+                            0.4 * (rend_depth - viewpoint_cam.depth_prior).abs()
+            depth_mask = viewpoint_cam.depth_mask.unsqueeze(0)
+            valid_depth_sum = depth_mask.sum() + 1e-5
+            depth_loss += lambda_depth * (depth_error[depth_mask].sum() / valid_depth_sum)
+            print(depth_loss)
         rend_normal  = render_pkg['rend_normal']
         surf_normal_median = render_pkg['surf_normal']
         surf_normal_expected = render_pkg['surf_normal_expected']
         rend_alpha = render_pkg['rend_alpha']
         
-        normal_error = 0.6 * (1 - (rend_normal * surf_normal_median).sum(dim=0))[None] + \
-                            0.4 * (1 - (rend_normal * surf_normal_expected).sum(dim=0))[None]
-        normal_loss = lambda_normal * normal_error.mean()
-        if dataset.w_normal_prior:
-            prior_normal = viewpoint_cam.normal * (rend_alpha).detach()
+        if lambda_normal > 0.0:
+            normal_error = 0.6 * (1 - (rend_normal * surf_normal_median).sum(dim=0))[None] + \
+                                0.4 * (1 - (rend_normal * surf_normal_expected).sum(dim=0))[None]
+            normal_loss += lambda_normal * normal_error.mean()
+            
+        if lambda_normal_prior > 0 and dataset.w_normal_prior:
+            prior_normal = viewpoint_cam.normal_prior * (rend_alpha).detach()
             prior_normal_mask = viewpoint_cam.normal_mask[0]
 
             normal_prior_error = (1 - F.cosine_similarity(prior_normal, rend_normal, dim=0)) + \
@@ -197,12 +213,12 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
             normal_prior_error = ranking_loss(normal_prior_error[prior_normal_mask], 
                                               penalize_ratio=1.0, type='mean')
             
-            normal_loss += lambda_normal_prior * normal_prior_error
+            normal_prior_loss = lambda_normal_prior * normal_prior_error
             if lambda_normal_gradient > 0.0:
-                normal_loss += lambda_normal_gradient * normal_gradient_loss(surf_normal_median, prior_normal)
+                normal_prior_loss += lambda_normal_gradient * normal_gradient_loss(surf_normal_median, prior_normal)
 
         # loss
-        total_loss = loss + dist_loss + normal_loss
+        total_loss = loss + dist_loss + depth_loss + normal_loss + normal_prior_loss
         
         total_loss.backward()
 
