@@ -13,7 +13,13 @@ import torch
 import math
 import numpy as np
 from typing import NamedTuple
-from gaussianpro import propagate
+try:
+    from gaussianpro import propagate
+    propagation_installed = True
+except:
+    propagation_installed = False
+    print("gaussianpro not installed")
+
 
 class BasicPointCloud(NamedTuple):
     points : np.array
