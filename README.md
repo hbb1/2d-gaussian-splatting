@@ -129,7 +129,7 @@ We provide <a> Evaluation Results (Pretrained, Images)</a>.
 </details>
 
 #### Geometry reconstruction
-For geometry reconstruction on DTU dataset, please download the preprocessed [data](https://drive.google.com/drive/folders/1SJFgt8qhQomHX55Q4xSvYE2C6-8tFll9). You also need to download the ground truth [DTU point cloud](https://roboimagedata.compute.dtu.dk/?page_id=36). 
+For geometry reconstruction on DTU dataset, please download the preprocessed data from [Drive](https://drive.google.com/drive/folders/1SJFgt8qhQomHX55Q4xSvYE2C6-8tFll9) or [Hugging Face](https://huggingface.co/datasets/dylanebert/2DGS). You also need to download the ground truth [DTU point cloud](https://roboimagedata.compute.dtu.dk/?page_id=36). 
 ```bash
 python scripts/dtu_eval.py --dtu <path to the preprocessed DTU dataset>   \
      --DTU_Official <path to the official DTU dataset>
