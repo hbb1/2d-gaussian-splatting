@@ -1133,23 +1133,6 @@ void PatchMatch::RunPatchMatch()
     CUDA_SAFE_CALL(cudaDeviceSynchronize());
 }
 
-torch::Tensor matToTensor(cv::Mat& mat) {
-    cv::Mat mat_float;
-    if (mat.channels() == 3) {
-        mat.convertTo(mat_float, CV_32FC3);
-    } else if (mat.channels() == 1) {
-        mat.convertTo(mat_float, CV_32FC1);
-    }
-
-    torch::Tensor tensor = torch::from_blob(mat_float.data,
-                                            {mat_float.rows, mat_float.cols, mat_float.channels()},
-                                            torch::kFloat32).clone(); 
-
-    tensor = tensor.permute({2, 0, 1});
-
-    return tensor;
-}
-
 torch::Tensor propagate_cuda(torch::Tensor images, torch::Tensor intrinsics, torch::Tensor poses, 
                                           torch::Tensor depth, torch::Tensor normal, torch::Tensor depth_intervals, int patch_size)
 {
@@ -1158,6 +1141,8 @@ torch::Tensor propagate_cuda(torch::Tensor images, torch::Tensor intrinsics, tor
     PatchMatch pm;
     pm.SetPatchSize(patch_size);
 
+    images = images.to(torch::kFloat);
+    
     pm.InuputInitialization(images, intrinsics, poses, depth, normal, depth_intervals);
 
     pm.CudaSpaceInitialization();

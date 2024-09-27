@@ -4,12 +4,12 @@
 #include "main.h"
 #include <torch/extension.h>
 
-Camera ReadCamera(const std::string &cam_path);
-void  RescaleImageAndCamera(cv::Mat_<cv::Vec3b> &src, cv::Mat_<cv::Vec3b> &dst, cv::Mat_<float> &depth, Camera &camera);
+Camera ReadCamera(torch::Tensor intrinsic, torch::Tensor pose, torch::Tensor depth_interval);
+void RescaleImageAndCamera(torch::Tensor &src, torch::Tensor &dst, torch::Tensor &depth, Camera &camera);
 float3 Get3DPointonWorld(const int x, const int y, const float depth, const Camera camera);
 void ProjectonCamera(const float3 PointX, const Camera camera, float2 &point, float &depth);
-float GetAngle(const cv::Vec3f &v1, const cv::Vec3f &v2);
-void StoreColorPlyFileBinaryPointCloud (const std::string &plyFilePath, const std::vector<PointList> &pc);
+float GetAngle(const torch::Tensor &v1, const torch::Tensor &v2);
+void StoreColorPlyFileBinaryPointCloud(const std::string &plyFilePath, const std::vector<PointList> &pc);
 
 #define CUDA_SAFE_CALL(error) CudaSafeCall(error, __FILE__, __LINE__)
 #define CUDA_CHECK_ERROR() CudaCheckError(__FILE__, __LINE__)
@@ -52,16 +52,16 @@ public:
     int GetPatchSize();
     int GetReferenceImageWidth();
     int GetReferenceImageHeight();
-    cv::Mat GetReferenceImage();
+    torch::Tensor GetReferenceImage();
     float4 GetPlaneHypothesis(const int index);
     float GetCost(const int index);
     float4* GetPlaneHypotheses();
 
 private:
     int num_images;
-    std::vector<cv::Mat> images;
-    std::vector<cv::Mat> depths;
-    std::vector<cv::Mat> normals;
+    std::vector<torch::Tensor> images;
+    std::vector<torch::Tensor> depths;
+    std::vector<torch::Tensor> normals;
     std::vector<Camera> cameras;
     cudaTextureObjects texture_objects_host;
     cudaTextureObjects texture_depths_host;

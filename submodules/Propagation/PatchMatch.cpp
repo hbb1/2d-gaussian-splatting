@@ -1,5 +1,6 @@
 #include "PatchMatch.h"
 #include <torch/extension.h>
+#include <cfloat>
 
 #include <cstdarg>
 
@@ -148,21 +149,20 @@ Camera ReadCamera(torch::Tensor intrinsic, torch::Tensor pose, torch::Tensor dep
     return camera;
 }
 
-void  RescaleImageAndCamera(cv::Mat_<cv::Vec3b> &src, cv::Mat_<cv::Vec3b> &dst, cv::Mat_<float> &depth, Camera &camera)
+void RescaleImageAndCamera(torch::Tensor &src, torch::Tensor &dst, torch::Tensor &depth, Camera &camera)
 {
-    const int cols = depth.cols;
-    const int rows = depth.rows;
+    const int cols = depth.size(1);
+    const int rows = depth.size(0);
 
-    if (cols == src.cols && rows == src.rows) {
+    if (cols == src.size(1) && rows == src.size(0)) {
         dst = src.clone();
         return;
     }
 
-    const float scale_x = cols / static_cast<float>(src.cols);
-    const float scale_y = rows / static_cast<float>(src.rows);
-
-    cv::resize(src, dst, cv::Size(cols,rows), 0, 0, cv::INTER_LINEAR);
-
+    const float scale_x = cols / static_cast<float>(src.size(1));
+    const float scale_y = rows / static_cast<float>(src.size(0));
+    dst = torch::nn::functional::interpolate(src.unsqueeze(0), torch::nn::functional::InterpolateFuncOptions().size(std::vector<int64_t>({rows, cols})).mode(torch::kBilinear)).squeeze(0);
+    
     camera.K[0] *= scale_x;
     camera.K[2] *= scale_x;
     camera.K[4] *= scale_y;
@@ -209,9 +209,9 @@ void ProjectonCamera(const float3 PointX, const Camera camera, float2 &point, fl
     point.y = (camera.K[3] * tmp.x + camera.K[4] * tmp.y + camera.K[5] * tmp.z) / depth;
 }
 
-float GetAngle( const cv::Vec3f &v1, const cv::Vec3f &v2 )
+float GetAngle(const torch::Tensor &v1, const torch::Tensor &v2)
 {
-    float dot_product = v1[0] * v2[0] + v1[1] * v2[1] + v1[2] * v2[2];
+    float dot_product = v1[0].item<float>() * v2[0].item<float>() + v1[1].item<float>() * v2[1].item<float>() + v1[2].item<float>() * v2[2].item<float>();
     float angle = acosf(dot_product);
     //if angle is not a number the dot product was 1 and thus the two vectors should be identical --> return 0
     if ( angle != angle )
@@ -285,19 +285,6 @@ static float GetDisparity(const Camera &camera, const int2 &p, const float &dept
     return std::sqrt(point3D[0] * point3D[0] + point3D[1] * point3D[1] + point3D[2] * point3D[2]);
 }
 
-cv::Mat tensorToMat(const torch::Tensor& tensor) {
-    torch::Tensor tensor_contiguous = tensor.contiguous();
-    torch::Tensor tensor_cpu_float = tensor_contiguous.to(torch::kCPU).to(torch::kFloat32);
-
-    int height = tensor_cpu_float.size(0);
-    int width = tensor_cpu_float.size(1);
-    int channels = tensor_cpu_float.size(2); 
-
-    cv::Mat mat(cv::Size(width, height), CV_32FC(channels), tensor_cpu_float.data_ptr<float>());
-
-    return mat.clone();
-}
-
 void PatchMatch::SetGeomConsistencyParams()
 {
     params.geom_consistency = true;
@@ -310,72 +297,65 @@ void PatchMatch::InuputInitialization(torch::Tensor images_cuda, torch::Tensor i
     images.clear();
     cameras.clear();
 
-    cv::Mat image_color = tensorToMat(images_cuda[0]);
-    cv::Mat image_float;
-    cv::cvtColor(image_color, image_float, cv::COLOR_RGB2GRAY);
-
-    image_float.convertTo(image_float, CV_32FC1);
+    torch::Tensor image_color = images_cuda[0];
+    torch::Tensor image_float = torch::mean(image_color, /*dim=*/2, /*keepdim=*/true).squeeze();
+    image_float = image_float.to(torch::kFloat32);
     images.push_back(image_float);
 
     Camera camera = ReadCamera(intrinsics_cuda[0], poses_cuda[0], depth_intervals[0]);
-    camera.height = image_float.rows;
-    camera.width = image_float.cols;
+    camera.height = image_float.size(0);
+    camera.width = image_float.size(1);
     cameras.push_back(camera);
 
-    cv::Mat ref_depth = tensorToMat(depth_cuda);
+    torch::Tensor ref_depth = depth_cuda;
     depths.push_back(ref_depth);
 
-    cv::Mat ref_normal = tensorToMat(normal_cuda);
+    torch::Tensor ref_normal = normal_cuda;
     normals.push_back(ref_normal);
 
     int num_src_images = images_cuda.size(0);
     for (int i = 1; i < num_src_images; ++i) {
-        cv::Mat src_image_color = tensorToMat(images_cuda[i]);
-        cv::Mat src_image_float;
-        cv::cvtColor(src_image_color, src_image_float, cv::COLOR_RGB2GRAY);
-
-        src_image_float.convertTo(src_image_float, CV_32FC1);
+        torch::Tensor src_image_color = images_cuda[i];
+        torch::Tensor src_image_float = torch::mean(src_image_color, /*dim=*/2, /*keepdim=*/true).squeeze();
+        src_image_float = src_image_float.to(torch::kFloat32);
         images.push_back(src_image_float);
 
         Camera camera = ReadCamera(intrinsics_cuda[i], poses_cuda[i], depth_intervals[i]);
-        camera.height = image_float.rows;
-        camera.width = image_float.cols;
+        camera.height = src_image_float.size(0);
+        camera.width = src_image_float.size(1);
         cameras.push_back(camera);
     }
 
     // Scale cameras and images
     for (size_t i = 0; i < images.size(); ++i) {
-        if (images[i].cols <=  params.max_image_size && images[i].rows <= params.max_image_size) {
+        if (images[i].size(1) <= params.max_image_size && images[i].size(0) <= params.max_image_size) {
             continue;
         }
 
-        const float factor_x = static_cast<float>(params.max_image_size) / images[i].cols;
-        const float factor_y = static_cast<float>(params.max_image_size) / images[i].rows;
+        const float factor_x = static_cast<float>(params.max_image_size) / images[i].size(1);
+        const float factor_y = static_cast<float>(params.max_image_size) / images[i].size(0);
         const float factor = std::min(factor_x, factor_y);
 
-        const int new_cols = std::round(images[i].cols * factor);
-        const int new_rows = std::round(images[i].rows * factor);
+        const int new_cols = std::round(images[i].size(1) * factor);
+        const int new_rows = std::round(images[i].size(0) * factor);
 
-        const float scale_x = new_cols / static_cast<float>(images[i].cols);
-        const float scale_y = new_rows / static_cast<float>(images[i].rows);
+        const float scale_x = new_cols / static_cast<float>(images[i].size(1));
+        const float scale_y = new_rows / static_cast<float>(images[i].size(0));
 
-        cv::Mat_<float> scaled_image_float;
-        cv::resize(images[i], scaled_image_float, cv::Size(new_cols,new_rows), 0, 0, cv::INTER_LINEAR);
+        torch::Tensor scaled_image_float = torch::nn::functional::interpolate(images[i].unsqueeze(0), torch::nn::functional::InterpolateFuncOptions().size(std::vector<int64_t>({new_rows, new_cols})).mode(torch::kBilinear)).squeeze(0);
         images[i] = scaled_image_float.clone();
 
         cameras[i].K[0] *= scale_x;
         cameras[i].K[2] *= scale_x;
         cameras[i].K[4] *= scale_y;
         cameras[i].K[5] *= scale_y;
-        cameras[i].height = scaled_image_float.rows;
-        cameras[i].width = scaled_image_float.cols;
+        cameras[i].height = scaled_image_float.size(0);
+        cameras[i].width = scaled_image_float.size(1);
     }
 
     params.depth_min = cameras[0].depth_min * 0.6f;
     params.depth_max = cameras[0].depth_max * 1.2f;
-    // std::cout << "depth range: " << params.depth_min << " " << params.depth_max << std::endl;
     params.num_images = (int)images.size();
-    // std::cout << "num images: " << params.num_images << std::endl;
     params.disparity_min = cameras[0].K[0] * params.baseline / params.depth_max;
     params.disparity_max = cameras[0].K[0] * params.baseline / params.depth_min;
 
@@ -386,13 +366,13 @@ void PatchMatch::CudaSpaceInitialization()
     num_images = (int)images.size();
 
     for (int i = 0; i < num_images; ++i) {
-        int rows = images[i].rows;
-        int cols = images[i].cols;
+        int rows = images[i].size(0);
+        int cols = images[i].size(1);
 
         cudaChannelFormatDesc channelDesc = cudaCreateChannelDesc(32, 0, 0, 0, cudaChannelFormatKindFloat);
         cudaMallocArray(&cuArray[i], &channelDesc, cols, rows);
 
-        cudaMemcpy2DToArray (cuArray[i], 0, 0, images[i].ptr<float>(), images[i].step[0], cols*sizeof(float), rows, cudaMemcpyHostToDevice);
+        cudaMemcpy2DToArray(cuArray[i], 0, 0, images[i].data_ptr<float>(), images[i].stride(0) * sizeof(float), cols * sizeof(float), rows, cudaMemcpyHostToDevice);
 
         struct cudaResourceDesc resDesc;
         memset(&resDesc, 0, sizeof(cudaResourceDesc));
@@ -404,15 +384,8 @@ void PatchMatch::CudaSpaceInitialization()
         texDesc.addressMode[0] = cudaAddressModeWrap;
         texDesc.addressMode[1] = cudaAddressModeWrap;
         texDesc.filterMode = cudaFilterModeLinear;
-        texDesc.readMode  = cudaReadModeElementType;
+        texDesc.readMode = cudaReadModeElementType;
         texDesc.normalizedCoords = 0;
-
-        // cudaError_t error = cudaGetLastError();
-        // printf("CUDA notification0: %s\n", "test");
-        // if (error != cudaSuccess) {
-        //     printf("CUDA error step 0: %s\n", cudaGetErrorString(error));
-        //     // 错误处理代码
-        // }
 
         cudaCreateTextureObject(&(texture_objects_host.images[i]), &resDesc, &texDesc, NULL);
     }
@@ -428,9 +401,9 @@ void PatchMatch::CudaSpaceInitialization()
     for (int row = 0; row < cameras[0].height; ++row) {
         for (int col = 0; col < cameras[0].width; ++col) {
             int center = row * cameras[0].width + col;
-            cv::Vec3f normal = normals[0].at<cv::Vec3f>(row, col);
-            float depth = depths[0].at<float>(row, col);
-            float4 plane_hypothesis = {normal[0], normal[1], normal[2], depth};
+            torch::Tensor normal = normals[0][row][col];
+            float depth = depths[0][row][col].item<float>();
+            float4 plane_hypothesis = {normal[0].item<float>(), normal[1].item<float>(), normal[2].item<float>(), depth};
             plane_hypotheses_host[center] = plane_hypothesis;
         }
     }
@@ -444,8 +417,7 @@ void PatchMatch::CudaSpaceInitialization()
     cudaMalloc((void**)&selected_views_cuda, sizeof(unsigned int) * (cameras[0].height * cameras[0].width));
 
     cudaMalloc((void**)&depths_cuda, sizeof(float) * (cameras[0].height * cameras[0].width));
-    cudaMemcpy(depths_cuda, depths[0].ptr<float>(),  sizeof(float) * cameras[0].height * cameras[0].width, cudaMemcpyHostToDevice);
-
+    cudaMemcpy(depths_cuda, depths[0].data_ptr<float>(), sizeof(float) * cameras[0].height * cameras[0].width, cudaMemcpyHostToDevice);
 }
 
 int PatchMatch::GetReferenceImageWidth()
@@ -458,7 +430,7 @@ int PatchMatch::GetReferenceImageHeight()
     return cameras[0].height;
 }
 
-cv::Mat PatchMatch::GetReferenceImage()
+torch::Tensor PatchMatch::GetReferenceImage()
 {
     return images[0];
 }
