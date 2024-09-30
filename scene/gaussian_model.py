@@ -166,7 +166,10 @@ class GaussianModel:
         scales = torch.log(torch.sqrt(dist2))[...,None].repeat(1, 2)
         
         # calculate normal
-        rots = normal2rotation(torch.from_numpy(np.asarray(pcd.normals)).float().cuda())
+        if pcd.normals is None:
+            rots = torch.rand((fused_point_cloud.shape[0], 4), device="cuda")
+        else:
+            rots = normal2rotation(torch.from_numpy(np.asarray(pcd.normals)).float().cuda())
 
         opacities = self.inverse_opacity_activation(0.1 * torch.ones((fused_point_cloud.shape[0], 1), dtype=torch.float, device="cuda"))
 

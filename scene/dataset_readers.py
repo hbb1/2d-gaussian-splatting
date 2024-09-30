@@ -120,21 +120,8 @@ def fetchPly(path):
     colors = np.vstack([vertices['red'], vertices['green'], vertices['blue']]).T / 255.0
     normals = np.vstack([vertices['nx'], vertices['ny'], vertices['nz']]).T
 
-    # Detect if normals are invalid
     if np.all(normals == 0):
         normals = None
-            
-    if normals is None:
-        print("Normals not provided or invalid. Estimating normals...")
-        # Create point cloud using Open3D
-        pcd = o3d.geometry.PointCloud()
-        pcd.points = o3d.utility.Vector3dVector(positions)
-        
-        # Estimate normals using Open3D
-        pcd.estimate_normals(search_param=o3d.geometry.KDTreeSearchParamHybrid(radius=0.1, max_nn=30))
-        
-        # Convert normals back to numpy array
-        normals = np.asarray(pcd.normals)
     return BasicPointCloud(points=positions, colors=colors, normals=normals)
 
 def storePly(path, xyz, rgb):
