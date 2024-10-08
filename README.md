@@ -87,7 +87,7 @@ To export a mesh with an arbitrary size, we devised an unbounded TSDF fusion wit
 python render.py -m <path to pre-trained model> -s <path to COLMAP dataset> --mesh_res 1024
 ```
 
-### Quick Examples
+## Quick Examples
 Assuming you have downloaded [MipNeRF360](https://jonbarron.info/mipnerf360/), simply use
 ```bash
 python train.py -s <path to m360>/<garden> -m output/m360/garden
