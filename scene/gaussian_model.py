@@ -274,6 +274,7 @@ class GaussianModel:
         scales = np.zeros((xyz.shape[0], len(scale_names)))
         for idx, attr_name in enumerate(scale_names):
             scales[:, idx] = np.asarray(plydata.elements[0][attr_name])
+        scales = scales[:, :2]
 
         rot_names = [p.name for p in plydata.elements[0].properties if p.name.startswith("rot")]
         rot_names = sorted(rot_names, key = lambda x: int(x.split('_')[-1]))
@@ -478,10 +479,10 @@ class GaussianModel:
         
     def add_densification_stats(self, viewspace_point_tensor, update_filter, pixels):
         if pixels is not None:
-            self.xyz_gradient_accum[update_filter] += torch.norm(viewspace_point_tensor.grad[update_filter], dim=-1, keepdim=True) * pixels[update_filter].unsqueeze(-1)
+            self.xyz_gradient_accum[update_filter] += torch.norm(viewspace_point_tensor.grad[:len(update_filter)][update_filter], dim=-1, keepdim=True) * pixels[update_filter].unsqueeze(-1)
             self.denom[update_filter] += pixels[update_filter].unsqueeze(-1)
         else:
-            self.xyz_gradient_accum[update_filter] += torch.norm(viewspace_point_tensor.grad[update_filter], dim=-1, keepdim=True)
+            self.xyz_gradient_accum[update_filter] += torch.norm(viewspace_point_tensor.grad[:len(update_filter)][update_filter], dim=-1, keepdim=True)
             self.denom[update_filter] += 1
 
 
@@ -543,3 +544,50 @@ class GaussianModel:
 
         #update gaussians
         self.densification_postfix(new_xyz, new_features_dc, new_features_rest, new_opacity, new_scaling, new_rotation)
+        
+class BgGaussianModel(GaussianModel):
+    def __init__(self, sh_degree: int):
+        self.active_sh_degree = 3
+        self.max_sh_degree = sh_degree
+        self._features_dc = torch.empty(0)
+        self._features_rest = torch.empty(0)
+        self._scaling = torch.empty(0)
+        self._rotation = torch.empty(0)
+        self._opacity = torch.empty(0)
+        self.optimizer = None
+        self.setup_functions()
+
+    def capture(self):
+        return (
+            self.active_sh_degree,
+            self._features_dc,
+            self._features_rest,
+            self._scaling,
+            self._rotation,
+            self._opacity,
+            self.optimizer.state_dict(),
+        )
+    
+    def restore(self, model_args):
+        (
+            self.active_sh_degree,
+            self._features_dc,
+            self._features_rest,
+            self._scaling,
+            self._rotation,
+            self._opacity,
+            opt_dict,
+        ) = model_args
+        self.setup_optimizer()
+        self.optimizer.load_state_dict(opt_dict)
+
+    def training_setup(self, training_args):
+        l = [
+            {'params': [self._features_dc], 'lr': 0.01, "name": "f_dc"},
+            {'params': [self._features_rest], 'lr': 0.0005, "name": "f_rest"},
+            {'params': [self._opacity], 'lr': 0.05, "name": "opacity"},
+            {'params': [self._scaling], 'lr': 0.005, "name": "scaling"},
+            {'params': [self._rotation], 'lr': 0.001, "name": "rotation"}
+        ]
+
+        self.optimizer = torch.optim.Adam(l, lr=0.0, eps=1e-15)

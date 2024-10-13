@@ -16,7 +16,7 @@ from utils.loss_utils import l1_loss_appearance, ssim, l1_loss
 from gaussian_renderer import render, network_gui
 import sys
 import torch.nn.functional as F
-from scene import Scene, GaussianModel, AppearanceModel
+from scene import Scene, GaussianModel, BgGaussianModel, AppearanceModel
 from utils.general_utils import safe_state
 from utils.patchmatch import process_propagation
 import uuid
@@ -119,8 +119,10 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
     first_iter = 0
     tb_writer = prepare_output_and_logger(dataset)
     gaussians = GaussianModel(dataset.sh_degree)
-    scene = Scene(dataset, gaussians)
+    bg_gaussians = BgGaussianModel(dataset.sh_degree)
+    scene = Scene(dataset, gaussians, bg_gaussians)
     gaussians.training_setup(opt)
+    bg_gaussians.training_setup(opt)
     if checkpoint:
         (model_params, first_iter) = torch.load(checkpoint)
         gaussians.restore(model_params, opt)
@@ -161,10 +163,11 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
         viewpoint_idx = randint(0, len(all_cameras)-1)
         viewpoint_cam = all_cameras[viewpoint_idx]
         # Set intervals for patch match 
-        intervals = [-2, -1, 1, 2]
-        src_idxs = [viewpoint_idx+itv for itv in intervals if ((itv + viewpoint_idx > 0) and (itv + viewpoint_idx < len(viewpoint_stack)))]   
-        process_propagation(viewpoint_stack, viewpoint_cam, gaussians, pipe, background, iteration, opt, src_idxs)
-        render_pkg = render(viewpoint_cam, gaussians, pipe, background, record_transmittance=(iteration < opt.densify_until_iter))
+        # intervals = [-2, -1, 1, 2]
+        # src_idxs = [viewpoint_idx+itv for itv in intervals if ((itv + viewpoint_idx > 0) and (itv + viewpoint_idx < len(viewpoint_stack)))]   
+        # process_propagation(viewpoint_stack, viewpoint_cam, gaussians, pipe, background, iteration, opt, src_idxs)
+        render_pkg = render(viewpoint_cam, gaussians, pipe, background, record_transmittance=(iteration < opt.densify_until_iter), bg_gaussians=bg_gaussians)
+        # render_pkg = render(viewpoint_cam, gaussians, pipe, background, record_transmittance=(iteration < opt.densify_until_iter))
         image, viewspace_point_tensor, visibility_filter, radii = render_pkg["render"], render_pkg["viewspace_points"], render_pkg["visibility_filter"], render_pkg["radii"]
         
         gt_image = viewpoint_cam.original_image.cuda()
@@ -250,7 +253,7 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
                 tb_writer.add_scalar('train_loss_patches/dist_loss', ema_depth_for_log, iteration)
                 tb_writer.add_scalar('train_loss_patches/normal_loss', ema_normal_for_log, iteration)
 
-            training_report(tb_writer, iteration, Ll1, loss, l1_loss, iter_start.elapsed_time(iter_end), testing_iterations, scene, render, (pipe, background))
+            # training_report(tb_writer, iteration, Ll1, loss, l1_loss, iter_start.elapsed_time(iter_end), testing_iterations, scene, render, (pipe, background))
             if (iteration in saving_iterations):
                 print("\n[ITER {}] Saving Gaussians".format(iteration))
                 scene.save(iteration)
@@ -289,6 +292,9 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
                 if appearances is not None:
                     appearances.optimizer.step()
                     appearances.optimizer.zero_grad(set_to_none = True)
+                if bg_gaussians is not None:
+                    bg_gaussians.optimizer.step()
+                    bg_gaussians.optimizer.zero_grad(set_to_none = True)
 
             if (iteration in checkpoint_iterations):
                 print("\n[ITER {}] Saving Checkpoint".format(iteration))
@@ -410,7 +416,7 @@ if __name__ == "__main__":
     parser.add_argument('--port', type=int, default=6009)
     parser.add_argument('--detect_anomaly', action='store_true', default=False)
     parser.add_argument("--test_iterations", nargs="+", type=int, default=[1, 7_000, 20_000, 30_000])
-    parser.add_argument("--save_iterations", nargs="+", type=int, default=[1, 7_000, 20_000, 30_000])
+    parser.add_argument("--save_iterations", nargs="+", type=int, default=[500, 7_000, 20_000, 30_000])
     parser.add_argument("--quiet", action="store_true")
     parser.add_argument("--checkpoint_iterations", nargs="+", type=int, default=[])
     parser.add_argument("--start_checkpoint", type=str, default = None)
