@@ -578,16 +578,13 @@ class BgGaussianModel(GaussianModel):
             self._opacity,
             opt_dict,
         ) = model_args
-        self.setup_optimizer()
         self.optimizer.load_state_dict(opt_dict)
 
     def training_setup(self, training_args):
         l = [
-            {'params': [self._features_dc], 'lr': 0.01, "name": "f_dc"},
-            {'params': [self._features_rest], 'lr': 0.0005, "name": "f_rest"},
-            {'params': [self._opacity], 'lr': 0.05, "name": "opacity"},
-            {'params': [self._scaling], 'lr': 0.005, "name": "scaling"},
-            {'params': [self._rotation], 'lr': 0.001, "name": "rotation"}
+            {'params': [self._xyz], 'lr': training_args.position_lr_init, "name": "xyz"},
+            {'params': [self._features_dc], 'lr': training_args.feature_lr, "name": "f_dc"},
+            {'params': [self._opacity], 'lr': training_args.opacity_lr, "name": "opacity"},
         ]
 
         self.optimizer = torch.optim.Adam(l, lr=0.0, eps=1e-15)
