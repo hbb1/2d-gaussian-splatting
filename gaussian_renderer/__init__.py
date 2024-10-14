@@ -17,7 +17,7 @@ from utils.sh_utils import eval_sh
 from utils.point_utils import depth_to_normal
 
 def render(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, scaling_modifier = 1.0, 
-           override_color = None, record_transmittance=False, bg_gaussians=None):
+           override_color = None, record_transmittance=False, bg_gaussians=None, skip_geometric=False):
     """
     Render the scene. 
     
@@ -97,7 +97,9 @@ def render(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, 
             "transmittance_avg": transmittance_avg
     }
 
-
+    if skip_geometric:
+        return rets
+    
     # additional regularizations
     render_alpha = allmap[1:2]
 
