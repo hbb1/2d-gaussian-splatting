@@ -197,7 +197,7 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
         if lambda_depth > 0 and viewpoint_cam.depth_prior is not None:
             depth_error = 0.6 * (surf_depth - viewpoint_cam.depth_prior).abs() + \
                             0.4 * (rend_depth - viewpoint_cam.depth_prior).abs()
-            depth_mask = viewpoint_cam.depth_mask.unsqueeze(0)
+            depth_mask = viewpoint_cam.depth_mask.unsqueeze(0) & viewpoint_cam.gt_alpha_mask
             valid_depth_sum = depth_mask.sum() + 1e-5
             depth_loss += lambda_depth * (depth_error[depth_mask & ~torch.isnan(depth_error)].sum() / valid_depth_sum)
 
@@ -209,12 +209,13 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
         if lambda_normal > 0.0:
             normal_error = 0.6 * (1 - F.cosine_similarity(rend_normal, surf_normal_median, dim=0)) + \
                            0.4 * (1 - F.cosine_similarity(rend_normal, surf_normal_expected, dim=0))
+            normal_error = normal_error * viewpoint_cam.gt_alpha_mask
             normal_error = ranking_loss(normal_error.view(-1), penalize_ratio=0.7, type='mean')
             normal_loss += lambda_normal * normal_error
             
         if lambda_normal_prior > 0 and dataset.w_normal_prior:
             prior_normal = viewpoint_cam.normal_prior * (rend_alpha).detach()
-            prior_normal_mask = viewpoint_cam.normal_mask[0]
+            prior_normal_mask = viewpoint_cam.normal_mask[0] & viewpoint_cam.gt_alpha_mask
 
             normal_prior_error = 0.6 * (1 - F.cosine_similarity(prior_normal, rend_normal, dim=0)) + \
                                  0.4 * (1 - F.cosine_similarity(prior_normal, surf_normal_expected, dim=0))           
