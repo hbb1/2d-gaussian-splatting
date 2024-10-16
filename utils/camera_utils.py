@@ -47,7 +47,15 @@ def loadCam(args, id, cam_info, resolution_scale):
         gt_image = resized_image_rgb
     else:
         resized_image_rgb = PILtoTorch(cam_info.image, resolution)
-        loaded_mask = None
+        if args.w_mask:
+            mask_dir = os.path.join(os.path.dirname(os.path.dirname(cam_info.image_path)), args.w_mask)
+            if not os.path.isdir(mask_dir):
+                exit(f"Cannot find mask dir {mask_dir}")
+            mask_path = os.path.join(mask_dir, os.path.basename(cam_info.image_name) + '.png')
+            loaded_mask = Image.open(mask_path)
+            loaded_mask = PILtoTorch(loaded_mask, resolution)
+        else:
+            loaded_mask = None
         gt_image = resized_image_rgb
 
     if args.w_normal_prior:
