@@ -16,7 +16,7 @@ from utils.loss_utils import l1_loss_appearance, ssim, l1_loss
 from gaussian_renderer import render, network_gui
 import sys
 import torch.nn.functional as F
-from scene import Scene, GaussianModel, BgGaussianModel, AppearanceModel
+from scene import Scene, GaussianModel, AppearanceModel
 from utils.general_utils import safe_state
 from utils.patchmatch import process_propagation
 import uuid
@@ -33,7 +33,7 @@ except ImportError:
 def prune_low_contribution_gaussians(gaussians, cameras, pipe, bg, K=5, prune_ratio=0.1):
     top_list = [None, ] * K
     for i, cam in enumerate(cameras):
-        trans = render(cam, gaussians, pipe, bg, record_transmittance=True)["transmittance_avg"]
+        trans = render(cam, gaussians, pipe, bg, record_transmittance=True, skip_geometric=True)["transmittance_avg"]
         if top_list[0] is not None:
             m = trans > top_list[0]
             if m.any():
@@ -119,10 +119,9 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
     first_iter = 0
     tb_writer = prepare_output_and_logger(dataset)
     gaussians = GaussianModel(dataset.sh_degree)
-    bg_gaussians = BgGaussianModel(dataset.sh_degree)
-    scene = Scene(dataset, gaussians, bg_gaussians)
+    scene = Scene(dataset, gaussians)
     gaussians.training_setup(opt)
-    bg_gaussians.training_setup(opt)
+
     if checkpoint:
         (model_params, first_iter) = torch.load(checkpoint)
         gaussians.restore(model_params, opt)
@@ -166,8 +165,7 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
         # intervals = [-2, -1, 1, 2]
         # src_idxs = [viewpoint_idx+itv for itv in intervals if ((itv + viewpoint_idx > 0) and (itv + viewpoint_idx < len(viewpoint_stack)))]   
         # process_propagation(viewpoint_stack, viewpoint_cam, gaussians, pipe, background, iteration, opt, src_idxs)
-        render_pkg = render(viewpoint_cam, gaussians, pipe, background, record_transmittance=(iteration < opt.densify_until_iter), bg_gaussians=bg_gaussians)
-        # render_pkg = render(viewpoint_cam, gaussians, pipe, background, record_transmittance=(iteration < opt.densify_until_iter))
+        render_pkg = render(viewpoint_cam, gaussians, pipe, background, record_transmittance=(iteration < opt.densify_until_iter))
         image, viewspace_point_tensor, visibility_filter, radii = render_pkg["render"], render_pkg["viewspace_points"], render_pkg["visibility_filter"], render_pkg["radii"]
         
         gt_image = viewpoint_cam.original_image.cuda()
@@ -175,7 +173,7 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
         loss = (1.0 - opt.lambda_dssim) * Ll1 + opt.lambda_dssim * (1.0 - ssim(image, gt_image))
         
         # regularization
-        lambda_normal = opt.lambda_normal if iteration > 7000 else 0.0
+        lambda_normal = opt.lambda_normal if iteration > 15000 else 0.0
         lambda_depth = opt.propagation_begin if iteration > opt.propagation_begin else 0.0
         lambda_dist = opt.lambda_dist if iteration > 3000 else 0.0
         lambda_normal_prior = opt.lambda_normal_prior if iteration > 15000 else 0.0
@@ -292,9 +290,6 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
                 if appearances is not None:
                     appearances.optimizer.step()
                     appearances.optimizer.zero_grad(set_to_none = True)
-                if bg_gaussians is not None:
-                    bg_gaussians.optimizer.step()
-                    bg_gaussians.optimizer.zero_grad(set_to_none = True)
 
             if (iteration in checkpoint_iterations):
                 print("\n[ITER {}] Saving Checkpoint".format(iteration))
