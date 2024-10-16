@@ -190,7 +190,7 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
         lambda_normal = opt.lambda_normal if iteration > 7000 else 0.0
         lambda_depth = opt.propagation_begin if iteration > opt.propagation_begin else 0.0
         lambda_dist = opt.lambda_dist if iteration > 3000 else 0.0
-        lambda_normal_prior = opt.lambda_normal_prior if iteration > 15000 else 0.0
+        lambda_normal_prior = opt.lambda_normal_prior * (7000 - iteration) / 7000 if iteration < 7000 else opt.lambda_normal_prior
         lambda_normal_gradient = opt.lambda_normal_gradient if iteration > 15000 else 0.0
         
         depth_loss = torch.tensor(0.).to("cuda")
@@ -221,12 +221,13 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
             normal_error = ranking_loss(normal_error.view(-1), penalize_ratio=0.7, type='mean')
             normal_loss += lambda_normal * normal_error
 
-        if lambda_normal_prior > 0 and dataset.w_normal_prior:
+        if lambda_normal_prior > 0 and viewpoint_cam.normal_prior is not None:
             prior_normal = viewpoint_cam.normal_prior * (rend_alpha).detach()
-            prior_normal_mask = viewpoint_cam.normal_mask[0] & viewpoint_cam.gt_alpha_mask.mean(dim=0)
+            prior_normal_mask = viewpoint_cam.normal_mask[0]
 
-            normal_prior_error = 0.6 * (1 - F.cosine_similarity(prior_normal, rend_normal, dim=0)) + \
-                                 0.4 * (1 - F.cosine_similarity(prior_normal, surf_normal_expected, dim=0))           
+            normal_prior_error = (1 - F.cosine_similarity(prior_normal, rend_normal, dim=0)) + \
+                                 (1 - F.cosine_similarity(prior_normal, surf_normal_expected, dim=0))
+            normal_prior_error = normal_prior_error * viewpoint_cam.gt_alpha_mask.mean(dim=0)   
             normal_prior_error = ranking_loss(normal_prior_error[prior_normal_mask], 
                                               penalize_ratio=1.0, type='mean')
             
@@ -244,8 +245,8 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
         with torch.no_grad():
             # Progress bar
             ema_loss_for_log = 0.4 * loss.item() + 0.6 * ema_loss_for_log
-            ema_depth_for_log = 0.4 * depth_loss.item() + 0.6 * ema_depth_for_log
-            ema_normal_for_log = 0.4 * normal_loss.item() + 0.6 * ema_normal_for_log
+            ema_depth_for_log = 0.4 * (depth_loss.item() + dist_loss.item()) + 0.6 * ema_depth_for_log
+            ema_normal_for_log = 0.4 * (normal_loss.item() + normal_prior_loss.item()) + 0.6 * ema_normal_for_log
 
 
             if iteration % 10 == 0:
@@ -281,10 +282,8 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
                 if iteration > opt.densify_from_iter and iteration % opt.densification_interval == 0:
                     prune_big_points = True if iteration > opt.opacity_reset_interval else False
                     gaussians.densify_and_prune(opt.densify_grad_threshold, opt.opacity_cull, scene.cameras_extent, prune_big_points)
-                
-                if iteration > opt.densify_from_iter and iteration % opt.split_interval == 0:
-                    gaussians.split_big_points(opt.max_screen_size)
-                    
+                    print(f'Num gs after opacity prune: {len(gaussians.get_xyz)}')
+
                 if iteration > opt.contribution_prune_from_iter and iteration % opt.contribution_prune_interval == 0:
                     if iteration % opt.opacity_reset_interval == opt.contribution_prune_interval:
                         print("Skipped Pruning for", iteration)
@@ -293,6 +292,9 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
                                                      K=1, prune_ratio=opt.contribution_prune_ratio)
                     print(f'Num gs after contribution prune: {len(gaussians.get_xyz)}')
 
+                if iteration > opt.densify_from_iter and iteration % opt.split_interval == 0:
+                    gaussians.split_big_points(opt.max_screen_size)
+                    
                 if iteration % opt.opacity_reset_interval == 0 or (dataset.white_background and iteration == opt.densify_from_iter):
                     gaussians.reset_opacity()
 
