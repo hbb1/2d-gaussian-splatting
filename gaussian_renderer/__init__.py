@@ -97,9 +97,6 @@ def render(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, 
             "transmittance_avg": transmittance_avg
     }
 
-    if skip_geometric:
-        return rets
-    
     # additional regularizations
     render_alpha = allmap[1:2]
 
@@ -126,13 +123,16 @@ def render(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, 
     # for unbounded scene, use expected depth, i.e., depth_ration = 0, to reduce disk anliasing.
     surf_depth = render_depth_expected * (1-pipe.depth_ratio) + (pipe.depth_ratio) * render_depth_median
     
-    # assume the depth points form the 'surface' and generate psudo surface normal for regularizations.
-    surf_normal_expected = depth_to_normal(viewpoint_camera, render_depth_expected).permute(2,0,1)
-    surf_normal = depth_to_normal(viewpoint_camera, render_depth_median).permute(2,0,1)
-    # remember to multiply with accum_alpha since render_normal is unnormalized.
-    surf_normal_expected = surf_normal_expected * (render_alpha).detach()
-    surf_normal = surf_normal * (render_alpha).detach()
-
+    if skip_geometric:
+        # assume the depth points form the 'surface' and generate psudo surface normal for regularizations.
+        surf_normal_expected = depth_to_normal(viewpoint_camera, render_depth_expected).permute(2,0,1)
+        surf_normal = depth_to_normal(viewpoint_camera, render_depth_median).permute(2,0,1)
+        # remember to multiply with accum_alpha since render_normal is unnormalized.
+        surf_normal_expected = surf_normal_expected * (render_alpha).detach()
+        surf_normal = surf_normal * (render_alpha).detach()
+    else:
+        surf_normal_expected = render_normal
+        surf_normal = render_normal
 
     rets.update({
             'rend_alpha': render_alpha,
