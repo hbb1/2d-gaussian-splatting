@@ -35,7 +35,7 @@ class CameraInfo(NamedTuple):
     image_name: str
     width: int
     height: int
-    principal_point_ndc: np.array
+    principal_point_ndc: np.array = np.array([1/2, 1/2])
 
 class SceneInfo(NamedTuple):
     point_cloud: BasicPointCloud
