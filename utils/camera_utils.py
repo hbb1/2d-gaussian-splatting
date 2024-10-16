@@ -67,14 +67,20 @@ def loadCam(args, id, cam_info, resolution_scale):
             _normal = - (_normal * 2 - 1)
             resized_normal = F.interpolate(_normal.unsqueeze(0), size=resolution[::-1], mode='bicubic')
             _normal = resized_normal.squeeze(0)
-        else:
+            # normalize normal
+            _normal = _normal.permute(1, 2, 0) @ (torch.tensor(np.linalg.inv(cam_info.R)).float())
+            _normal = _normal.permute(2, 0, 1)
+        elif os.path.exists(normal_path[:-4]+ '.png'):
             _normal = Image.open(normal_path[:-4]+ '.png')
             resized_normal = PILtoTorch(_normal, resolution)
             resized_normal = resized_normal[:3]
             _normal = - (resized_normal * 2 - 1)
-        # normalize normal
-        _normal = _normal.permute(1, 2, 0) @ (torch.tensor(np.linalg.inv(cam_info.R)).float())
-        _normal = _normal.permute(2, 0, 1)
+            # normalize normal
+            _normal = _normal.permute(1, 2, 0) @ (torch.tensor(np.linalg.inv(cam_info.R)).float())
+            _normal = _normal.permute(2, 0, 1)
+        else:
+            print(f"Cannot find normal {normal_path}")
+            _normal = None
     else:
         _normal = None
         
