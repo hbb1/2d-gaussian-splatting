@@ -56,6 +56,7 @@ class ModelParams(ParamGroup):
         self.eval = False
         self.render_items = ['RGB', 'Alpha', 'Normal', 'Depth', 'Edge', 'Curvature']
         self.w_normal_prior = ""
+        self.w_mask = ""
         self.use_decoupled_appearance = False
         super().__init__(parser, "Loading Parameters", sentinel)
 
