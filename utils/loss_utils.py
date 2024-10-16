@@ -17,6 +17,22 @@ from math import exp
 def l1_loss(network_output, gt):
     return torch.abs((network_output - gt)).mean()
 
+def ms_l1_loss(network_output, gt, scales=[1, 2, 4]):
+    total_loss = 0
+    weights = [1.0, 0.5, 0.25]  # Weights for different scales, adjust as needed
+    
+    for scale, weight in zip(scales, weights):
+        if scale == 1:
+            # Original resolution
+            total_loss += weight * l1_loss(network_output, gt)
+        else:
+            # Downsampled resolution
+            scaled_output = F.interpolate(network_output, scale_factor=1/scale, mode='bilinear', align_corners=False)
+            scaled_gt = F.interpolate(gt, scale_factor=1/scale, mode='bilinear', align_corners=False)
+            total_loss += weight * l1_loss(scaled_output, scaled_gt)
+    
+    return total_loss
+
 def l2_loss(network_output, gt):
     return ((network_output - gt) ** 2).mean()
 
