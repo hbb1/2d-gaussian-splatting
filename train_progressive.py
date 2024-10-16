@@ -33,7 +33,7 @@ except ImportError:
 def prune_low_contribution_gaussians(gaussians, cameras, pipe, bg, K=5, prune_ratio=0.1):
     top_list = [None, ] * K
     for i, cam in enumerate(cameras):
-        trans = render(cam, gaussians, pipe, bg, record_transmittance=True)["transmittance_avg"]
+        trans = render(cam, gaussians, pipe, bg, record_transmittance=True, skip_geometric=True)["transmittance_avg"]
         if top_list[0] is not None:
             m = trans > top_list[0]
             if m.any():
@@ -179,9 +179,17 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
         Ll1 = l1_loss_appearance(image, gt_image, appearances, viewpoint_idx) # use L1 loss for the transformed image if using decoupled appearance
         loss = (1.0 - opt.lambda_dssim) * Ll1 + opt.lambda_dssim * (1.0 - ssim(image, gt_image))
 
+        # alpha loss
+        if opt.lambda_mask > 0:
+            opacity = 1 - render_pkg["rend_alpha"].clamp(1e-6, 1-1e-6)
+            bg = 1 - viewpoint_cam.gt_alpha_mask
+            mask_error = (- bg * torch.log(opacity)).mean()
+            loss += opt.lambda_mask * mask_error
+
         # regularization
         lambda_normal = opt.lambda_normal if iteration > 7000 else 0.0
         lambda_depth = opt.propagation_begin if iteration > opt.propagation_begin else 0.0
+        lambda_dist = opt.lambda_dist if iteration > 3000 else 0.0
         lambda_normal_prior = opt.lambda_normal_prior if iteration > 15000 else 0.0
         lambda_normal_gradient = opt.lambda_normal_gradient if iteration > 15000 else 0.0
         
@@ -189,15 +197,18 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
         normal_loss = torch.tensor(0.).to("cuda")
         normal_prior_loss = torch.tensor(0.).to("cuda")
         
+        rend_dist = render_pkg["rend_dist"]
         rend_depth = render_pkg["rend_depth"]
         surf_depth = render_pkg["surf_depth"]
+        dist_loss = lambda_dist * (rend_dist).mean()
+
         if lambda_depth > 0 and viewpoint_cam.depth_prior is not None:
             depth_error = 0.6 * (surf_depth - viewpoint_cam.depth_prior).abs() + \
                             0.4 * (rend_depth - viewpoint_cam.depth_prior).abs()
-            depth_mask = viewpoint_cam.depth_mask.unsqueeze(0)
+            depth_mask = viewpoint_cam.depth_mask.unsqueeze(0) & viewpoint_cam.gt_alpha_mask
             valid_depth_sum = depth_mask.sum() + 1e-5
             depth_loss += lambda_depth * (depth_error[depth_mask & ~torch.isnan(depth_error)].sum() / valid_depth_sum)
-        
+
         rend_normal  = render_pkg['rend_normal']
         surf_normal_median = render_pkg['surf_normal']
         surf_normal_expected = render_pkg['surf_normal_expected']
@@ -206,12 +217,13 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
         if lambda_normal > 0.0:
             normal_error = 0.6 * (1 - F.cosine_similarity(rend_normal, surf_normal_median, dim=0)) + \
                            0.4 * (1 - F.cosine_similarity(rend_normal, surf_normal_expected, dim=0))
+            normal_error = normal_error * viewpoint_cam.gt_alpha_mask.mean(dim=0)
             normal_error = ranking_loss(normal_error.view(-1), penalize_ratio=0.7, type='mean')
             normal_loss += lambda_normal * normal_error
 
         if lambda_normal_prior > 0 and dataset.w_normal_prior:
             prior_normal = viewpoint_cam.normal_prior * (rend_alpha).detach()
-            prior_normal_mask = viewpoint_cam.normal_mask[0]
+            prior_normal_mask = viewpoint_cam.normal_mask[0] & viewpoint_cam.gt_alpha_mask.mean(dim=0)
 
             normal_prior_error = 0.6 * (1 - F.cosine_similarity(prior_normal, rend_normal, dim=0)) + \
                                  0.4 * (1 - F.cosine_similarity(prior_normal, surf_normal_expected, dim=0))           
@@ -223,7 +235,7 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
                 normal_prior_loss += lambda_normal_gradient * normal_gradient_loss(surf_normal_median, prior_normal)
 
         # loss
-        total_loss = loss + depth_loss + normal_loss + normal_prior_loss
+        total_loss = loss + dist_loss + depth_loss + normal_loss + normal_prior_loss
         
         total_loss.backward()
 
@@ -251,10 +263,10 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
 
             # Log and save
             if tb_writer is not None:
-                tb_writer.add_scalar('train_loss_patches/depth_loss', ema_depth_for_log, iteration)
+                tb_writer.add_scalar('train_loss_patches/dist_loss', ema_depth_for_log, iteration)
                 tb_writer.add_scalar('train_loss_patches/normal_loss', ema_normal_for_log, iteration)
 
-            training_report(tb_writer, iteration, Ll1, loss, l1_loss, iter_start.elapsed_time(iter_end), testing_iterations, scene, render, (pipe, background))
+            # training_report(tb_writer, iteration, Ll1, loss, l1_loss, iter_start.elapsed_time(iter_end), testing_iterations, scene, render, (pipe, background))
             if (iteration in saving_iterations):
                 print("\n[ITER {}] Saving Gaussians".format(iteration))
                 scene.save(iteration)
@@ -413,8 +425,8 @@ if __name__ == "__main__":
     parser.add_argument('--ip', type=str, default="127.0.0.1")
     parser.add_argument('--port', type=int, default=6009)
     parser.add_argument('--detect_anomaly', action='store_true', default=False)
-    parser.add_argument("--test_iterations", nargs="+", type=int, default=[1, 7_000, 20_000, 30_000])
-    parser.add_argument("--save_iterations", nargs="+", type=int, default=[1, 7_000, 20_000, 30_000])
+    parser.add_argument("--test_iterations", nargs="+", type=int, default=[7_000, 20_000, 30_000])
+    parser.add_argument("--save_iterations", nargs="+", type=int, default=[7_000, 20_000, 30_000])
     parser.add_argument("--quiet", action="store_true")
     parser.add_argument("--checkpoint_iterations", nargs="+", type=int, default=[])
     parser.add_argument("--start_checkpoint", type=str, default = None)
