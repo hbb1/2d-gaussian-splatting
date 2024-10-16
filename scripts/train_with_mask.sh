@@ -1,5 +1,8 @@
 data=$1
 
-gs-init -s $data -o ${data}_gaustudio --overwrite --w_mask mask
-python train_progressive.py -s ${data}_gaustudio -r 1  --lambda_dist 100 --w_mask masks --lambda_mask 0.1 --max_screen_size 5 -m ${data}_gaustudio/result
-gs-extract-pcd -m ${data}_gaustudio/result -o ${data}_gaustudio/result/fusion --meshing nksr
+gs-init -s $data -o ${data}_gaustudio_wmask --w_mask mask
+python train_progressive.py -s ${data}_gaustudio_wmask -r 1  --lambda_dist 1000 \
+        --w_mask masks --lambda_mask 0.1 --max_screen_size 5 -m ${data}_gaustudio_wmask/result
+gs-extract-pcd -m ${data}_gaustudio_wmask/result -o ${data}_gaustudio_wmask/result/fusion --meshing poisson-9
+texrecon ${data}_gaustudio_wmask/result/fusion/images ${data}_gaustudio_wmask/result/fusion/fused_mesh.ply \
+        ${data}_gaustudio_wmask/result/fusion/textured_mesh --outlier_removal=gauss_clamping --data_term=area --no_intermediate_results
