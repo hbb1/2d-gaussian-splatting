@@ -93,7 +93,7 @@ class OptimizationParams(ParamGroup):
         self.lambda_normal = 0.05
         self.lambda_mask = 0.
         self.lambda_normal_prior = 0.25
-        self.lambda_normal_gradient = 0
+        self.lambda_normal_gradient = 0.
         self.opacity_cull = 0.05
 
         self.split_interval = 500

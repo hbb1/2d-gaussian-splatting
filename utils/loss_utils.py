@@ -14,6 +14,49 @@ import torch.nn.functional as F
 from torch.autograd import Variable
 from math import exp
 
+def edge_aware_curvature_loss(I, D, mask=None):
+    # Define Sobel kernels
+    sobel_x = torch.tensor([[-1, 0, 1], [-2, 0, 2], [-1, 0, 1]]).float().unsqueeze(0).unsqueeze(0).to(I.device) / 4
+    sobel_y = torch.tensor([[-1, -2, -1], [0, 0, 0], [1, 2, 1]]).float().unsqueeze(0).unsqueeze(0).to(I.device) / 4
+
+    # Compute derivatives of D
+    dD_dx = torch.cat([F.conv2d(D[i].unsqueeze(0), sobel_x, padding=1) for i in range(D.shape[0])])
+    dD_dy = torch.cat([F.conv2d(D[i].unsqueeze(0), sobel_y, padding=1) for i in range(D.shape[0])])
+
+    # Compute derivatives of I
+    dI_dx = torch.cat([F.conv2d(I[i].unsqueeze(0), sobel_x, padding=1) for i in range(I.shape[0])])
+    dI_dx = torch.mean(torch.abs(dI_dx), 0, keepdim=True)
+    dI_dy = torch.cat([F.conv2d(I[i].unsqueeze(0), sobel_y, padding=1) for i in range(I.shape[0])])
+    dI_dy = torch.mean(torch.abs(dI_dy), 0, keepdim=True)
+
+    # Compute weights
+    weights_x = (dI_dx - 1) ** 500
+    weights_y = (dI_dy - 1) ** 500
+
+    # Compute losses
+    loss_x = torch.abs(dD_dx) * weights_x
+    loss_y = torch.abs(dD_dy) * weights_y
+
+    # Apply mask to losses
+    if mask is not None:
+        # Ensure mask is on the correct device and has correct dimensions
+        mask = mask.to(I.device)
+        loss_x = loss_x * mask
+        loss_y = loss_y * mask
+
+        # Count valid pixels
+        valid_pixel_count = mask.sum()
+
+        # Compute the mean loss only over valid pixels
+        if valid_pixel_count.item() > 0:
+            return (loss_x.sum() + loss_y.sum()) / valid_pixel_count
+        else:
+            # Handle the case where no valid pixels exist
+            return torch.tensor(0.0, device=I.device, requires_grad=True)
+    else:
+        # If no mask is provided, calculate the mean over all pixels
+        return (loss_x + loss_y).mean()
+
 def l1_loss(network_output, gt):
     return torch.abs((network_output - gt)).mean()
 

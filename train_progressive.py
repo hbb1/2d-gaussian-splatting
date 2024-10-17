@@ -12,7 +12,7 @@
 import os
 import torch
 from random import randint
-from utils.loss_utils import l1_loss_appearance, ssim, l1_loss
+from utils.loss_utils import l1_loss_appearance, ssim, l1_loss, edge_aware_curvature_loss
 from gaussian_renderer import render, network_gui
 import sys
 import torch.nn.functional as F
@@ -226,6 +226,8 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
                            0.4 * (1 - F.cosine_similarity(rend_normal, surf_normal_expected, dim=0))
             normal_error = normal_error * gt_mask
             normal_loss = lambda_normal * (normal_error.sum() / valid_pixel_count)
+            if lambda_normal_gradient > 0.0:
+                normal_loss += lambda_normal_gradient * edge_aware_curvature_loss(gt_image, surf_normal_median, gt_mask)
 
         if lambda_normal_prior > 0 and viewpoint_cam.normal_prior is not None:
             prior_normal = viewpoint_cam.normal_prior * (rend_alpha).detach()
