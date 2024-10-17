@@ -200,7 +200,12 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
         rend_dist = render_pkg["rend_dist"]
         rend_depth = render_pkg["rend_depth"]
         surf_depth = render_pkg["surf_depth"]
-        dist_loss = lambda_dist * (rend_dist).mean()
+        rend_alpha = render_pkg['rend_alpha']
+        gt_mask = viewpoint_cam.gt_alpha_mask.mean(dim=0)
+        valid_pixel_count = gt_mask.sum()
+
+        dist_error = rend_dist * gt_mask
+        dist_loss = lambda_dist * (dist_error.sum() / valid_pixel_count)
 
         if lambda_depth > 0 and viewpoint_cam.depth_prior is not None:
             depth_error = 0.6 * (surf_depth - viewpoint_cam.depth_prior).abs() + \
@@ -209,17 +214,18 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
             valid_depth_sum = depth_mask.sum() + 1e-5
             depth_loss += lambda_depth * (depth_error[depth_mask & ~torch.isnan(depth_error)].sum() / valid_depth_sum)
 
-        rend_normal  = render_pkg['rend_normal']
+        # fix normal
+        rend_normal = render_pkg['rend_normal'] / rend_alpha.detach()
+        rend_normal = torch.nan_to_num(rend_normal, 0, 0)
+        surf_normal_expected = render_pkg['surf_normal_expected'] / rend_alpha.detach()
+        surf_normal_expected = torch.nan_to_num(surf_normal_expected, 0, 0)
         surf_normal_median = render_pkg['surf_normal']
-        surf_normal_expected = render_pkg['surf_normal_expected']
-        rend_alpha = render_pkg['rend_alpha']
-        
+
         if lambda_normal > 0.0:
             normal_error = 0.6 * (1 - F.cosine_similarity(rend_normal, surf_normal_median, dim=0)) + \
                            0.4 * (1 - F.cosine_similarity(rend_normal, surf_normal_expected, dim=0))
-            normal_error = normal_error * viewpoint_cam.gt_alpha_mask.mean(dim=0)
-            normal_error = ranking_loss(normal_error.view(-1), penalize_ratio=0.7, type='mean')
-            normal_loss += lambda_normal * normal_error
+            normal_error = normal_error * gt_mask
+            normal_loss = lambda_normal * (normal_error.sum() / valid_pixel_count)
 
         if lambda_normal_prior > 0 and viewpoint_cam.normal_prior is not None:
             prior_normal = viewpoint_cam.normal_prior * (rend_alpha).detach()
@@ -227,7 +233,7 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
 
             normal_prior_error = (1 - F.cosine_similarity(prior_normal, rend_normal, dim=0)) + \
                                  (1 - F.cosine_similarity(prior_normal, surf_normal_expected, dim=0))
-            normal_prior_error = normal_prior_error * viewpoint_cam.gt_alpha_mask.mean(dim=0)   
+            normal_prior_error = normal_prior_error * gt_mask   
             normal_prior_error = ranking_loss(normal_prior_error[prior_normal_mask], 
                                               penalize_ratio=1.0, type='mean')
             
