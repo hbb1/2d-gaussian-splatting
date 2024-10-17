@@ -191,7 +191,7 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
         lambda_depth = opt.propagation_begin if iteration > opt.propagation_begin else 0.0
         lambda_dist = opt.lambda_dist if iteration > 3000 else 0.0
         lambda_normal_prior = opt.lambda_normal_prior * (7000 - iteration) / 7000 if iteration < 7000 else opt.lambda_normal_prior
-        lambda_normal_gradient = opt.lambda_normal_gradient if iteration > 15000 else 0.0
+        lambda_normal_gradient = opt.lambda_normal_gradient if iteration > 7000 else 0.0
         
         depth_loss = torch.tensor(0.).to("cuda")
         normal_loss = torch.tensor(0.).to("cuda")
@@ -227,7 +227,9 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
             normal_error = normal_error * gt_mask
             normal_loss = lambda_normal * (normal_error.sum() / valid_pixel_count)
             if lambda_normal_gradient > 0.0:
-                normal_loss += lambda_normal_gradient * edge_aware_curvature_loss(gt_image, surf_normal_median, gt_mask)
+                curvature_error = 0.6 *edge_aware_curvature_loss(gt_image, surf_normal_median, gt_mask) + \
+                                    0.4 * edge_aware_curvature_loss(gt_image, surf_normal_expected, gt_mask)
+                normal_loss += lambda_normal_gradient * curvature_error
 
         if lambda_normal_prior > 0 and viewpoint_cam.normal_prior is not None:
             prior_normal = viewpoint_cam.normal_prior * (rend_alpha).detach()
