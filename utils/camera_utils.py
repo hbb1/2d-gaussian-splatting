@@ -61,17 +61,17 @@ def loadCam(args, id, cam_info, resolution_scale):
     if args.w_normal_prior:
         import torch
         # normal_path = cam_info.image_path.replace('images_4', args.w_normal_prior)
-        normal_path = os.path.join(os.path.dirname(os.path.dirname(cam_info.image_path)), args.w_normal_prior, os.path.basename(cam_info.image_path))
-        if os.path.exists(normal_path[:-4]+ '.npy'):
-            _normal = torch.tensor(np.load(normal_path[:-4]+ '.npy'))
+        normal_path = os.path.join(os.path.dirname(os.path.dirname(cam_info.image_path)), args.w_normal_prior, os.path.basename(cam_info.image_path).split('.')[0])
+        if os.path.exists(normal_path+ '.npy'):
+            _normal = torch.tensor(np.load(normal_path+ '.npy'))
             _normal = - (_normal * 2 - 1)
             resized_normal = F.interpolate(_normal.unsqueeze(0), size=resolution[::-1], mode='bicubic')
             _normal = resized_normal.squeeze(0)
             # normalize normal
             _normal = _normal.permute(1, 2, 0) @ (torch.tensor(np.linalg.inv(cam_info.R)).float())
             _normal = _normal.permute(2, 0, 1)
-        elif os.path.exists(normal_path[:-4]+ '.png'):
-            _normal = Image.open(normal_path[:-4]+ '.png')
+        elif os.path.exists(normal_path+ '.png'):
+            _normal = Image.open(normal_path+ '.png')
             resized_normal = PILtoTorch(_normal, resolution)
             resized_normal = resized_normal[:3]
             _normal = - (resized_normal * 2 - 1)
@@ -79,7 +79,7 @@ def loadCam(args, id, cam_info, resolution_scale):
             _normal = _normal.permute(1, 2, 0) @ (torch.tensor(np.linalg.inv(cam_info.R)).float())
             _normal = _normal.permute(2, 0, 1)
         else:
-            print(f"Cannot find normal {normal_path}")
+            print(f"Cannot find normal {normal_path}.png")
             _normal = None
     else:
         _normal = None
