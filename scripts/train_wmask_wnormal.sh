@@ -1,6 +1,6 @@
 data=$1
 postix=gaustudio_wmask_wnormal
-# gs-init -s $data -o ${data}_${postix} --w_mask mask
+gs-init -s $data -o ${data}_${postix} --w_mask mask
 python scripts/init_normal.py -s ${data}_${postix}
 rm -r ${data}_${postix}/result_2
 python train_progressive.py -s ${data}_${postix} -r 1  --lambda_dist 1000 \
