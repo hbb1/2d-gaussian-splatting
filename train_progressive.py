@@ -12,7 +12,8 @@
 import os
 import torch
 from random import randint
-from utils.loss_utils import l1_loss_appearance, ssim, l1_loss, edge_aware_curvature_loss
+from fused_ssim import fused_ssim
+from utils.loss_utils import l1_loss_appearance, l1_loss, edge_aware_curvature_loss
 from gaussian_renderer import render, network_gui
 import sys
 import torch.nn.functional as F
@@ -177,7 +178,8 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
         
         gt_image = viewpoint_cam.original_image.cuda()
         Ll1 = l1_loss_appearance(image, gt_image, appearances, viewpoint_idx) # use L1 loss for the transformed image if using decoupled appearance
-        loss = (1.0 - opt.lambda_dssim) * Ll1 + opt.lambda_dssim * (1.0 - ssim(image, gt_image))
+        ssim_value = fused_ssim(image.unsqueeze(0), gt_image.unsqueeze(0))
+        loss = (1.0 - opt.lambda_dssim) * Ll1 + opt.lambda_dssim * (1.0 - ssim_value)
 
         # alpha loss
         if opt.lambda_mask > 0:
@@ -437,8 +439,8 @@ if __name__ == "__main__":
     parser.add_argument('--ip', type=str, default="127.0.0.1")
     parser.add_argument('--port', type=int, default=6009)
     parser.add_argument('--detect_anomaly', action='store_true', default=False)
-    parser.add_argument("--test_iterations", nargs="+", type=int, default=[7_000, 20_000, 30_000])
-    parser.add_argument("--save_iterations", nargs="+", type=int, default=[7_000, 20_000, 30_000])
+    parser.add_argument("--test_iterations", nargs="+", type=int, default=[1,7_000, 20_000, 30_000])
+    parser.add_argument("--save_iterations", nargs="+", type=int, default=[1, 7_000, 20_000, 30_000])
     parser.add_argument("--quiet", action="store_true")
     parser.add_argument("--checkpoint_iterations", nargs="+", type=int, default=[])
     parser.add_argument("--start_checkpoint", type=str, default = None)

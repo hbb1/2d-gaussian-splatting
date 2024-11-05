@@ -4,3 +4,6 @@
 [submodule "submodules/diff-surfel-rasterization"]
 	path = submodules/diff-surfel-rasterization
 	url = https://github.com/hugoycj/diff-surfel-rasterization-MCMC
+[submodule "submodules/fused-ssim"]
+	path = submodules/fused-ssim
+	url = https://github.com/rahul-goel/fused-ssim.git
