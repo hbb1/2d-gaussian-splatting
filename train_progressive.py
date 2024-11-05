@@ -12,7 +12,8 @@
 import os
 import torch
 from random import randint
-from utils.loss_utils import l1_loss_appearance, ssim, l1_loss
+from fused_ssim import fused_ssim
+from utils.loss_utils import l1_loss_appearance, l1_loss, edge_aware_curvature_loss
 from gaussian_renderer import render, network_gui
 import sys
 import torch.nn.functional as F
@@ -119,9 +120,8 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
     first_iter = 0
     tb_writer = prepare_output_and_logger(dataset)
     gaussians = GaussianModel(dataset.sh_degree)
-    scene = Scene(dataset, gaussians)
+    scene = Scene(dataset, gaussians, resolution_scales=[4, 2, 1])
     gaussians.training_setup(opt)
-
     if checkpoint:
         (model_params, first_iter) = torch.load(checkpoint)
         gaussians.restore(model_params, opt)
@@ -156,22 +156,31 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
         if iteration % 1000 == 0:
             gaussians.oneupSHdegree()
 
-        # Pick a random Camera
-        if not viewpoint_stack:
-            viewpoint_stack = scene.getTrainCameras().copy()
-        viewpoint_idx = randint(0, len(all_cameras)-1)
-        viewpoint_cam = all_cameras[viewpoint_idx]
+        if iteration - 1 == 0:
+            scale = 4
+            viewpoint_stack = scene.getTrainCameras(scale=scale)
+        elif iteration - 1 == 5000:
+            scale = 2
+            viewpoint_stack = scene.getTrainCameras(scale=scale)
+        elif iteration - 1 >= 10000:
+            scale = 1   
+            viewpoint_stack = scene.getTrainCameras(scale=scale)
+
+        viewpoint_idx = randint(0, len(viewpoint_stack)-1)
+        viewpoint_cam = viewpoint_stack[viewpoint_idx]
+
         # Set intervals for patch match 
         # intervals = [-2, -1, 1, 2]
         # src_idxs = [viewpoint_idx+itv for itv in intervals if ((itv + viewpoint_idx > 0) and (itv + viewpoint_idx < len(viewpoint_stack)))]   
-        # process_propagation(viewpoint_stack, viewpoint_cam, gaussians, pipe, background, iteration, opt, src_idxs)
+        # depth_loss = process_propagation(viewpoint_stack, viewpoint_cam, gaussians, pipe, background, iteration, opt, src_idxs)
         render_pkg = render(viewpoint_cam, gaussians, pipe, background, record_transmittance=(iteration < opt.densify_until_iter))
         image, viewspace_point_tensor, visibility_filter, radii = render_pkg["render"], render_pkg["viewspace_points"], render_pkg["visibility_filter"], render_pkg["radii"]
         
         gt_image = viewpoint_cam.original_image.cuda()
         Ll1 = l1_loss_appearance(image, gt_image, appearances, viewpoint_idx) # use L1 loss for the transformed image if using decoupled appearance
-        loss = (1.0 - opt.lambda_dssim) * Ll1 + opt.lambda_dssim * (1.0 - ssim(image, gt_image))
-        
+        ssim_value = fused_ssim(image.unsqueeze(0), gt_image.unsqueeze(0))
+        loss = (1.0 - opt.lambda_dssim) * Ll1 + opt.lambda_dssim * (1.0 - ssim_value)
+
         # alpha loss
         if opt.lambda_mask > 0:
             opacity = 1 - render_pkg["rend_alpha"].clamp(1e-6, 1-1e-6)
@@ -180,11 +189,11 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
             loss += opt.lambda_mask * mask_error
 
         # regularization
-        lambda_normal = opt.lambda_normal if iteration > 15000 else 0.0
+        lambda_normal = opt.lambda_normal if iteration > 7000 else 0.0
         lambda_depth = opt.propagation_begin if iteration > opt.propagation_begin else 0.0
         lambda_dist = opt.lambda_dist if iteration > 3000 else 0.0
         lambda_normal_prior = opt.lambda_normal_prior * (7000 - iteration) / 7000 if iteration < 7000 else opt.lambda_normal_prior
-        lambda_normal_gradient = opt.lambda_normal_gradient if iteration > 15000 else 0.0
+        lambda_normal_gradient = opt.lambda_normal_gradient if iteration > 7000 else 0.0
         
         depth_loss = torch.tensor(0.).to("cuda")
         normal_loss = torch.tensor(0.).to("cuda")
@@ -193,7 +202,12 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
         rend_dist = render_pkg["rend_dist"]
         rend_depth = render_pkg["rend_depth"]
         surf_depth = render_pkg["surf_depth"]
-        dist_loss = lambda_dist * (rend_dist).mean()
+        rend_alpha = render_pkg['rend_alpha']
+        gt_mask = viewpoint_cam.gt_alpha_mask.mean(dim=0)
+        valid_pixel_count = gt_mask.sum()
+
+        dist_error = rend_dist * gt_mask
+        dist_loss = lambda_dist * (dist_error.sum() / valid_pixel_count)
 
         if lambda_depth > 0 and viewpoint_cam.depth_prior is not None:
             depth_error = 0.6 * (surf_depth - viewpoint_cam.depth_prior).abs() + \
@@ -202,25 +216,30 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
             valid_depth_sum = depth_mask.sum() + 1e-5
             depth_loss += lambda_depth * (depth_error[depth_mask & ~torch.isnan(depth_error)].sum() / valid_depth_sum)
 
-        rend_normal  = render_pkg['rend_normal']
+        # fix normal
+        rend_normal = render_pkg['rend_normal'] / rend_alpha.detach()
+        rend_normal = torch.nan_to_num(rend_normal, 0, 0)
+        surf_normal_expected = render_pkg['surf_normal_expected'] / rend_alpha.detach()
+        surf_normal_expected = torch.nan_to_num(surf_normal_expected, 0, 0)
         surf_normal_median = render_pkg['surf_normal']
-        surf_normal_expected = render_pkg['surf_normal_expected']
-        rend_alpha = render_pkg['rend_alpha']
-        
+
         if lambda_normal > 0.0:
             normal_error = 0.6 * (1 - F.cosine_similarity(rend_normal, surf_normal_median, dim=0)) + \
                            0.4 * (1 - F.cosine_similarity(rend_normal, surf_normal_expected, dim=0))
-            normal_error = normal_error * viewpoint_cam.gt_alpha_mask.mean(dim=0)
-            normal_error = ranking_loss(normal_error.view(-1), penalize_ratio=0.7, type='mean')
-            normal_loss += lambda_normal * normal_error
-            
+            normal_error = normal_error * gt_mask
+            normal_loss = lambda_normal * (normal_error.sum() / valid_pixel_count)
+            if lambda_normal_gradient > 0.0:
+                curvature_error = 0.6 *edge_aware_curvature_loss(gt_image, surf_normal_median, gt_mask) + \
+                                    0.4 * edge_aware_curvature_loss(gt_image, surf_normal_expected, gt_mask)
+                normal_loss += lambda_normal_gradient * curvature_error
+
         if lambda_normal_prior > 0 and viewpoint_cam.normal_prior is not None:
             prior_normal = viewpoint_cam.normal_prior * (rend_alpha).detach()
             prior_normal_mask = viewpoint_cam.normal_mask[0]
 
             normal_prior_error = (1 - F.cosine_similarity(prior_normal, rend_normal, dim=0)) + \
                                  (1 - F.cosine_similarity(prior_normal, surf_normal_expected, dim=0))
-            normal_prior_error = normal_prior_error * viewpoint_cam.gt_alpha_mask.mean(dim=0)   
+            normal_prior_error = normal_prior_error * gt_mask   
             normal_prior_error = ranking_loss(normal_prior_error[prior_normal_mask], 
                                               penalize_ratio=1.0, type='mean')
             
@@ -275,10 +294,8 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
                 if iteration > opt.densify_from_iter and iteration % opt.densification_interval == 0:
                     prune_big_points = True if iteration > opt.opacity_reset_interval else False
                     gaussians.densify_and_prune(opt.densify_grad_threshold, opt.opacity_cull, scene.cameras_extent, prune_big_points)
-                
-                if iteration > opt.densify_from_iter and iteration % opt.split_interval == 0:
-                    gaussians.split_big_points(opt.max_screen_size)
-                    
+                    print(f'Num gs after opacity prune: {len(gaussians.get_xyz)}')
+
                 if iteration > opt.contribution_prune_from_iter and iteration % opt.contribution_prune_interval == 0:
                     if iteration % opt.opacity_reset_interval == opt.contribution_prune_interval:
                         print("Skipped Pruning for", iteration)
@@ -287,6 +304,9 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
                                                      K=1, prune_ratio=opt.contribution_prune_ratio)
                     print(f'Num gs after contribution prune: {len(gaussians.get_xyz)}')
 
+                if iteration > opt.densify_from_iter and iteration % opt.split_interval == 0:
+                    gaussians.split_big_points(opt.max_screen_size)
+                    
                 if iteration % opt.opacity_reset_interval == 0 or (dataset.white_background and iteration == opt.densify_from_iter):
                     gaussians.reset_opacity()
 
@@ -419,8 +439,8 @@ if __name__ == "__main__":
     parser.add_argument('--ip', type=str, default="127.0.0.1")
     parser.add_argument('--port', type=int, default=6009)
     parser.add_argument('--detect_anomaly', action='store_true', default=False)
-    parser.add_argument("--test_iterations", nargs="+", type=int, default=[1, 7_000, 20_000, 30_000])
-    parser.add_argument("--save_iterations", nargs="+", type=int, default=[500, 7_000, 20_000, 30_000])
+    parser.add_argument("--test_iterations", nargs="+", type=int, default=[1,7_000, 20_000, 30_000])
+    parser.add_argument("--save_iterations", nargs="+", type=int, default=[1, 7_000, 20_000, 30_000])
     parser.add_argument("--quiet", action="store_true")
     parser.add_argument("--checkpoint_iterations", nargs="+", type=int, default=[])
     parser.add_argument("--start_checkpoint", type=str, default = None)

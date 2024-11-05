@@ -161,10 +161,6 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
             viewpoint_stack = scene.getTrainCameras().copy()
         viewpoint_idx = randint(0, len(all_cameras)-1)
         viewpoint_cam = all_cameras[viewpoint_idx]
-        # Set intervals for patch match 
-        # intervals = [-2, -1, 1, 2]
-        # src_idxs = [viewpoint_idx+itv for itv in intervals if ((itv + viewpoint_idx > 0) and (itv + viewpoint_idx < len(viewpoint_stack)))]   
-        # process_propagation(viewpoint_stack, viewpoint_cam, gaussians, pipe, background, iteration, opt, src_idxs)
         render_pkg = render(viewpoint_cam, gaussians, pipe, background, record_transmittance=(iteration < opt.densify_until_iter))
         image, viewspace_point_tensor, visibility_filter, radii = render_pkg["render"], render_pkg["viewspace_points"], render_pkg["visibility_filter"], render_pkg["radii"]
         
@@ -180,27 +176,17 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
             loss += opt.lambda_mask * mask_error
 
         # regularization
-        lambda_normal = opt.lambda_normal if iteration > 15000 else 0.0
-        lambda_depth = opt.propagation_begin if iteration > opt.propagation_begin else 0.0
-        lambda_dist = opt.lambda_dist if iteration > 3000 else 0.0
-        lambda_normal_prior = opt.lambda_normal_prior * (7000 - iteration) / 7000 if iteration < 7000 else opt.lambda_normal_prior
-        lambda_normal_gradient = opt.lambda_normal_gradient if iteration > 15000 else 0.0
+        lambda_normal = opt.lambda_normal
+        lambda_dist = opt.lambda_dist
+        lambda_normal_prior = opt.lambda_normal_prior
+        lambda_normal_gradient = opt.lambda_normal_gradient
         
         depth_loss = torch.tensor(0.).to("cuda")
         normal_loss = torch.tensor(0.).to("cuda")
         normal_prior_loss = torch.tensor(0.).to("cuda")
         
         rend_dist = render_pkg["rend_dist"]
-        rend_depth = render_pkg["rend_depth"]
-        surf_depth = render_pkg["surf_depth"]
         dist_loss = lambda_dist * (rend_dist).mean()
-
-        if lambda_depth > 0 and viewpoint_cam.depth_prior is not None:
-            depth_error = 0.6 * (surf_depth - viewpoint_cam.depth_prior).abs() + \
-                            0.4 * (rend_depth - viewpoint_cam.depth_prior).abs()
-            depth_mask = viewpoint_cam.depth_mask.unsqueeze(0) & viewpoint_cam.gt_alpha_mask
-            valid_depth_sum = depth_mask.sum() + 1e-5
-            depth_loss += lambda_depth * (depth_error[depth_mask & ~torch.isnan(depth_error)].sum() / valid_depth_sum)
 
         rend_normal  = render_pkg['rend_normal']
         surf_normal_median = render_pkg['surf_normal']
@@ -211,7 +197,7 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
             normal_error = 0.6 * (1 - F.cosine_similarity(rend_normal, surf_normal_median, dim=0)) + \
                            0.4 * (1 - F.cosine_similarity(rend_normal, surf_normal_expected, dim=0))
             normal_error = normal_error * viewpoint_cam.gt_alpha_mask.mean(dim=0)
-            normal_error = ranking_loss(normal_error.view(-1), penalize_ratio=0.7, type='mean')
+            normal_error = ranking_loss(normal_error.view(-1), penalize_ratio=1.0, type='mean')
             normal_loss += lambda_normal * normal_error
             
         if lambda_normal_prior > 0 and viewpoint_cam.normal_prior is not None:

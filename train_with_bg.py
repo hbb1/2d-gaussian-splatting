@@ -12,11 +12,11 @@
 import os
 import torch
 from random import randint
-from utils.loss_utils import l1_loss_appearance, ssim, l1_loss
+from utils.loss_utils import l1_loss_appearance, ssim, l1_loss, ms_l1_loss
 from gaussian_renderer import render, network_gui
 import sys
 import torch.nn.functional as F
-from scene import Scene, GaussianModel, AppearanceModel
+from scene import Scene, GaussianModel, BgGaussianModel, AppearanceModel
 from utils.general_utils import safe_state
 from utils.patchmatch import process_propagation
 import uuid
@@ -119,27 +119,46 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
     first_iter = 0
     tb_writer = prepare_output_and_logger(dataset)
     gaussians = GaussianModel(dataset.sh_degree)
-    scene = Scene(dataset, gaussians)
-    gaussians.training_setup(opt)
+    bg_gaussians = BgGaussianModel(dataset.sh_degree)
+    scene = Scene(dataset, gaussians, bg_gaussians)
+    all_cameras = scene.getTrainCameras()
 
-    if checkpoint:
-        (model_params, first_iter) = torch.load(checkpoint)
-        gaussians.restore(model_params, opt)
+    bg_gaussians.training_setup(opt)
 
     bg_color = [1, 1, 1] if dataset.white_background else [0, 0, 0]
     background = torch.tensor(bg_color, dtype=torch.float32, device="cuda")
 
+    pbar = tqdm(range(5000), desc="Training Background", unit="iteration")
+    viewpoint_stack = None
+    for iteration in pbar:
+        if not viewpoint_stack:
+            viewpoint_stack = scene.getTrainCameras().copy()
+        viewpoint_cam = viewpoint_stack.pop(randint(0, len(viewpoint_stack)-1))
+        render_pkg = render(viewpoint_cam, gaussians, pipe, background, record_transmittance=False, 
+                            bg_gaussians=bg_gaussians, skip_geometric=True)
+        total_loss = ms_l1_loss(render_pkg["render"][None], viewpoint_cam.original_image.cuda()[None])
+        total_loss.backward()
+        bg_gaussians.optimizer.step()
+        bg_gaussians.optimizer.zero_grad(set_to_none = True)
+        pbar.set_postfix({"Loss": f"{total_loss.item():.4f}"})
+    bg_gaussians.optimizer = None
+    # TODO: Trim unused background point
+    # prune_low_contribution_gaussians(bg_gaussians, all_cameras, pipe, background, 
+
+    gaussians.training_setup(opt)
+    if checkpoint:
+        (model_params, first_iter) = torch.load(checkpoint)
+        gaussians.restore(model_params, opt)
+
     iter_start = torch.cuda.Event(enable_timing = True)
     iter_end = torch.cuda.Event(enable_timing = True)
-
-    viewpoint_stack = None
+    
     ema_loss_for_log = 0.0
     ema_depth_for_log = 0.0
     ema_normal_for_log = 0.0
 
     progress_bar = tqdm(range(first_iter, opt.iterations), desc="Training progress")
     first_iter += 1
-    all_cameras = scene.getTrainCameras()
     if dataset.use_decoupled_appearance:
         appearances = AppearanceModel(len(all_cameras))
         appearances.training_setup(opt)
@@ -155,79 +174,71 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
         # Every 1000 its we increase the levels of SH up to a maximum degree
         if iteration % 1000 == 0:
             gaussians.oneupSHdegree()
+            bg_gaussians.oneupSHdegree()
 
-        # Pick a random Camera
-        if not viewpoint_stack:
-            viewpoint_stack = scene.getTrainCameras().copy()
         viewpoint_idx = randint(0, len(all_cameras)-1)
         viewpoint_cam = all_cameras[viewpoint_idx]
-        # Set intervals for patch match 
-        # intervals = [-2, -1, 1, 2]
-        # src_idxs = [viewpoint_idx+itv for itv in intervals if ((itv + viewpoint_idx > 0) and (itv + viewpoint_idx < len(viewpoint_stack)))]   
-        # process_propagation(viewpoint_stack, viewpoint_cam, gaussians, pipe, background, iteration, opt, src_idxs)
-        render_pkg = render(viewpoint_cam, gaussians, pipe, background, record_transmittance=(iteration < opt.densify_until_iter))
+        render_pkg = render(viewpoint_cam, gaussians, pipe, background, record_transmittance=False, bg_gaussians=bg_gaussians, 
+                            skip_geometric=True)
+        # render_pkg = render(viewpoint_cam, gaussians, pipe, background, record_transmittance=(iteration < opt.densify_until_iter))
         image, viewspace_point_tensor, visibility_filter, radii = render_pkg["render"], render_pkg["viewspace_points"], render_pkg["visibility_filter"], render_pkg["radii"]
         
         gt_image = viewpoint_cam.original_image.cuda()
         Ll1 = l1_loss_appearance(image, gt_image, appearances, viewpoint_idx) # use L1 loss for the transformed image if using decoupled appearance
         loss = (1.0 - opt.lambda_dssim) * Ll1 + opt.lambda_dssim * (1.0 - ssim(image, gt_image))
         
-        # alpha loss
-        if opt.lambda_mask > 0:
-            opacity = 1 - render_pkg["rend_alpha"].clamp(1e-6, 1-1e-6)
-            bg = 1 - viewpoint_cam.gt_alpha_mask
-            mask_error = (- bg * torch.log(opacity)).mean()
-            loss += opt.lambda_mask * mask_error
-
-        # regularization
-        lambda_normal = opt.lambda_normal if iteration > 15000 else 0.0
-        lambda_depth = opt.propagation_begin if iteration > opt.propagation_begin else 0.0
-        lambda_dist = opt.lambda_dist if iteration > 3000 else 0.0
-        lambda_normal_prior = opt.lambda_normal_prior * (7000 - iteration) / 7000 if iteration < 7000 else opt.lambda_normal_prior
-        lambda_normal_gradient = opt.lambda_normal_gradient if iteration > 15000 else 0.0
-        
-        depth_loss = torch.tensor(0.).to("cuda")
-        normal_loss = torch.tensor(0.).to("cuda")
-        normal_prior_loss = torch.tensor(0.).to("cuda")
-        
         rend_dist = render_pkg["rend_dist"]
-        rend_depth = render_pkg["rend_depth"]
-        surf_depth = render_pkg["surf_depth"]
+        lambda_dist = opt.lambda_dist if iteration > 3000 else 0.0
         dist_loss = lambda_dist * (rend_dist).mean()
 
-        if lambda_depth > 0 and viewpoint_cam.depth_prior is not None:
-            depth_error = 0.6 * (surf_depth - viewpoint_cam.depth_prior).abs() + \
-                            0.4 * (rend_depth - viewpoint_cam.depth_prior).abs()
-            depth_mask = viewpoint_cam.depth_mask.unsqueeze(0) & viewpoint_cam.gt_alpha_mask
-            valid_depth_sum = depth_mask.sum() + 1e-5
-            depth_loss += lambda_depth * (depth_error[depth_mask & ~torch.isnan(depth_error)].sum() / valid_depth_sum)
-
-        rend_normal  = render_pkg['rend_normal']
-        surf_normal_median = render_pkg['surf_normal']
-        surf_normal_expected = render_pkg['surf_normal_expected']
-        rend_alpha = render_pkg['rend_alpha']
-        
-        if lambda_normal > 0.0:
-            normal_error = 0.6 * (1 - F.cosine_similarity(rend_normal, surf_normal_median, dim=0)) + \
-                           0.4 * (1 - F.cosine_similarity(rend_normal, surf_normal_expected, dim=0))
-            normal_error = normal_error * viewpoint_cam.gt_alpha_mask.mean(dim=0)
-            normal_error = ranking_loss(normal_error.view(-1), penalize_ratio=0.7, type='mean')
-            normal_loss += lambda_normal * normal_error
+        # regularization
+        if iteration > 15000:
+            render_pkg = render(viewpoint_cam, gaussians, pipe, background, record_transmittance=False)
+            lambda_normal = opt.lambda_normal if iteration > 15000 else 0.0
+            lambda_depth = opt.propagation_begin if iteration > opt.propagation_begin else 0.0
+            lambda_normal_prior = opt.lambda_normal_prior if iteration > 15000 else 0.0
+            lambda_normal_gradient = opt.lambda_normal_gradient if iteration > 15000 else 0.0
             
-        if lambda_normal_prior > 0 and viewpoint_cam.normal_prior is not None:
-            prior_normal = viewpoint_cam.normal_prior * (rend_alpha).detach()
-            prior_normal_mask = viewpoint_cam.normal_mask[0]
-
-            normal_prior_error = (1 - F.cosine_similarity(prior_normal, rend_normal, dim=0)) + \
-                                 (1 - F.cosine_similarity(prior_normal, surf_normal_expected, dim=0))
-            normal_prior_error = normal_prior_error * viewpoint_cam.gt_alpha_mask.mean(dim=0)   
-            normal_prior_error = ranking_loss(normal_prior_error[prior_normal_mask], 
-                                              penalize_ratio=1.0, type='mean')
+            depth_loss = torch.tensor(0.).to("cuda")
+            normal_loss = torch.tensor(0.).to("cuda")
+            normal_prior_loss = torch.tensor(0.).to("cuda")
             
-            normal_prior_loss = lambda_normal_prior * normal_prior_error
-            if lambda_normal_gradient > 0.0:
-                normal_prior_loss += lambda_normal_gradient * normal_gradient_loss(surf_normal_median, prior_normal)
+            rend_depth = render_pkg["rend_depth"]
+            surf_depth = render_pkg["surf_depth"]
+            if lambda_depth > 0 and viewpoint_cam.depth_prior is not None:
+                depth_error = 0.6 * (surf_depth - viewpoint_cam.depth_prior).abs() + \
+                                0.4 * (rend_depth - viewpoint_cam.depth_prior).abs()
+                depth_mask = viewpoint_cam.depth_mask.unsqueeze(0)
+                valid_depth_sum = depth_mask.sum() + 1e-5
+                depth_loss += lambda_depth * (depth_error[depth_mask & ~torch.isnan(depth_error)].sum() / valid_depth_sum)
 
+            rend_normal  = render_pkg['rend_normal']
+            surf_normal_median = render_pkg['surf_normal']
+            surf_normal_expected = render_pkg['surf_normal_expected']
+            rend_alpha = render_pkg['rend_alpha']
+            
+            if lambda_normal > 0.0:
+                normal_error = 0.6 * (1 - F.cosine_similarity(rend_normal, surf_normal_median, dim=0)) + \
+                            0.4 * (1 - F.cosine_similarity(rend_normal, surf_normal_expected, dim=0))
+                normal_error = ranking_loss(normal_error.view(-1), penalize_ratio=1.0, type='mean')
+                normal_loss += lambda_normal * normal_error
+                
+            if lambda_normal_prior > 0 and dataset.w_normal_prior:
+                prior_normal = viewpoint_cam.normal_prior * (rend_alpha).detach()
+                prior_normal_mask = viewpoint_cam.normal_mask[0]
+
+                normal_prior_error = 0.6 * (1 - F.cosine_similarity(prior_normal, rend_normal, dim=0)) + \
+                                    0.4 * (1 - F.cosine_similarity(prior_normal, surf_normal_expected, dim=0))           
+                normal_prior_error = ranking_loss(normal_prior_error[prior_normal_mask], 
+                                                penalize_ratio=1.0, type='mean')
+                
+                normal_prior_loss = lambda_normal_prior * normal_prior_error
+                if lambda_normal_gradient > 0.0:
+                    normal_prior_loss += lambda_normal_gradient * normal_gradient_loss(surf_normal_median, prior_normal)
+        else:
+            depth_loss = torch.tensor(0.).to("cuda")
+            normal_loss = torch.tensor(0.).to("cuda")
+            normal_prior_loss = torch.tensor(0.).to("cuda")
         # loss
         total_loss = loss + dist_loss + depth_loss + normal_loss + normal_prior_loss
         
@@ -238,8 +249,8 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
         with torch.no_grad():
             # Progress bar
             ema_loss_for_log = 0.4 * loss.item() + 0.6 * ema_loss_for_log
-            ema_depth_for_log = 0.4 * (depth_loss.item() + dist_loss.item()) + 0.6 * ema_depth_for_log
-            ema_normal_for_log = 0.4 * (normal_loss.item() + normal_prior_loss.item()) + 0.6 * ema_normal_for_log
+            ema_depth_for_log = 0.4 * depth_loss.item() + 0.6 * ema_depth_for_log
+            ema_normal_for_log = 0.4 * normal_loss.item() + 0.6 * ema_normal_for_log
 
 
             if iteration % 10 == 0:
@@ -268,19 +279,21 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
 
             # Densification
             if iteration < opt.densify_until_iter:
-                gaussians.max_radii2D[visibility_filter] = torch.max(gaussians.max_radii2D[visibility_filter], 
-                                                                     radii[visibility_filter] * (render_pkg["transmittance_avg"][visibility_filter] > 0.01))
                 gaussians.add_densification_stats(viewspace_point_tensor, visibility_filter, None)
 
                 if iteration > opt.densify_from_iter and iteration % opt.densification_interval == 0:
                     prune_big_points = True if iteration > opt.opacity_reset_interval else False
                     gaussians.densify_and_prune(opt.densify_grad_threshold, opt.opacity_cull, scene.cameras_extent, prune_big_points)
                 
-                if iteration > opt.densify_from_iter and iteration % opt.split_interval == 0:
-                    gaussians.split_big_points(opt.max_screen_size)
-                    
+                # if render_pkg["transmittance_avg"] is not None:
+                #     gaussians.max_radii2D[visibility_filter] = torch.max(gaussians.max_radii2D[visibility_filter], 
+                #                                                         radii[visibility_filter] * (render_pkg["transmittance_avg"][visibility_filter] > 0.01))
+                # if iteration > 7000 and iteration % opt.split_interval == 0:
+                #     gaussians.split_big_points(opt.max_screen_size)
+                
                 if iteration > opt.contribution_prune_from_iter and iteration % opt.contribution_prune_interval == 0:
-                    if iteration % opt.opacity_reset_interval == opt.contribution_prune_interval:
+                    if iteration % opt.opacity_reset_interval == opt.contribution_prune_interval or \
+                        iteration % opt.opacity_reset_interval == opt.split_interval:
                         print("Skipped Pruning for", iteration)
                         continue
                     prune_low_contribution_gaussians(gaussians, all_cameras, pipe, background, 
@@ -420,7 +433,7 @@ if __name__ == "__main__":
     parser.add_argument('--port', type=int, default=6009)
     parser.add_argument('--detect_anomaly', action='store_true', default=False)
     parser.add_argument("--test_iterations", nargs="+", type=int, default=[1, 7_000, 20_000, 30_000])
-    parser.add_argument("--save_iterations", nargs="+", type=int, default=[500, 7_000, 20_000, 30_000])
+    parser.add_argument("--save_iterations", nargs="+", type=int, default=[1, 7_000, 20_000, 30_000])
     parser.add_argument("--quiet", action="store_true")
     parser.add_argument("--checkpoint_iterations", nargs="+", type=int, default=[])
     parser.add_argument("--start_checkpoint", type=str, default = None)
