@@ -55,7 +55,7 @@ class Camera(nn.Module):
             self.gt_alpha_mask = gt_alpha_mask.to(self.data_device)
         else:
             self.original_image *= torch.ones((1, self.image_height, self.image_width), device=self.data_device)
-            self.gt_alpha_mask = None
+            self.gt_alpha_mask = torch.ones((1, self.image_height, self.image_width), device=self.data_device)
 
         self.K = generate_K(fovX=self.FoVx, fovY=self.FoVy, width=self.image_width, height=self.image_height, principal_point_ndc=principal_point_ndc).to(self.data_device).to(torch.float32)
 
