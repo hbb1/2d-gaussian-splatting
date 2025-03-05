@@ -103,6 +103,9 @@ python render.py -r 2 --depth_ratio 1 --skip_test --skip_train
 ```
 **Custom Dataset**: We use the same COLMAP loader as 3DGS, you can prepare your data following [here](https://github.com/graphdeco-inria/gaussian-splatting?tab=readme-ov-file#processing-your-own-scenes). 
 
+> [!WARNING] 
+> In our **preprocessed DTU dataset**, we store the mask in the alpha channel. When using the **DTU dataset** in the [gaussian-splatting repository](https://github.com/graphdeco-inria/gaussian-splatting), please note that the background may be masked. To train DTU with background, we have commented [these lines](https://github.com/hbb1/2d-gaussian-splatting/blob/df1f6c684cc4e41a34937fd45a7847260e9c6cd7/scene/cameras.py#L43C1-L48C38) out.
+
 ## Full evaluation
 We provide scripts to evaluate our method of novel view synthesis and geometric reconstruction.
 <details>
@@ -122,11 +125,6 @@ For novel view synthesis on [MipNeRF360](https://jonbarron.info/mipnerf360/) (wh
 ```bash
 python scripts/mipnerf_eval.py -m60 <path to the MipNeRF360 dataset>
 ```
-We provide <a> Evaluation Results (Pretrained, Images)</a>. 
-<details>
-<summary><span style="font-weight: bold;">Table Results</span></summary>
-
-</details>
 
 #### Geometry reconstruction
 For geometry reconstruction on DTU dataset, please download the preprocessed data from [Drive](https://drive.google.com/drive/folders/1SJFgt8qhQomHX55Q4xSvYE2C6-8tFll9) or [Hugging Face](https://huggingface.co/datasets/dylanebert/2DGS). You also need to download the ground truth [DTU point cloud](https://roboimagedata.compute.dtu.dk/?page_id=36). 
@@ -145,11 +143,12 @@ Chamfer distance on DTU dataset (lower is better)
 | Paper    | 0.48 | 0.91 | 0.39 | 0.39 | 1.01 | 0.83 | 0.81 | 1.36 | 1.27 | 0.76 | 0.70 | 1.40 | 0.40 | 0.76 | 0.52 | 0.80 |
 | Reproduce | 0.46 | 0.80 | 0.33 | 0.37 | 0.95 | 0.86 | 0.80 | 1.25 | 1.24 | 0.67 | 0.67 | 1.24 | 0.39 | 0.64 | 0.47 | 0.74 |
 </details>
-<br>
 
 For geometry reconstruction on TnT dataset, please download the preprocessed [TnT_data](https://huggingface.co/datasets/ZehaoYu/gaussian-opacity-fields/tree/main). You also need to download the ground truth [TnT_GT](https://www.tanksandtemples.org/download/), including ground truth point cloud, alignments and cropfiles.
 
-**Due to historical issue, you should use open3d==0.10.0 for evaluating TNT.**
+> [!IMPORTANT]  
+> Due to historical issue, you should use open3d==0.10.0 for evaluating TNT.
+
 ```bash
 # use open3d 0.18.0, skip metrics
 python scripts/tnt_eval.py --TNT_data <path to the preprocessed TNT dataset>   \
@@ -159,7 +158,6 @@ python scripts/tnt_eval.py --TNT_data <path to the preprocessed TNT dataset>   \
 python scripts/tnt_eval.py --TNT_data <path to the preprocessed TNT dataset>   \
      --TNT_GT <path to the official TNT evaluation dataset> --skip_training --skip_rendering
 ```
-We provide <a> Evaluation Results (Pretrained, Meshes)</a>. 
 <details>
 <summary><span style="font-weight: bold;">Table Results</span></summary>
 
@@ -169,7 +167,6 @@ F1 scores on TnT dataset (higher is better)
 |--------|--------|-------------|----------|--------|-------------|------------|------------|
 | Reproduce | 0.41  | 0.23      | 0.51   | 0.45 | 0.17      | 0.15      | 0.32 |
 </details>
-<br>
 
 
 ## FAQ
