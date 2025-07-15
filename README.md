@@ -123,7 +123,7 @@ You can report either the numbers from the paper or from this implementation, as
 #### Novel View Synthesis
 For novel view synthesis on [MipNeRF360](https://jonbarron.info/mipnerf360/) (which also works for other colmap datasets), use
 ```bash
-python scripts/mipnerf_eval.py -m60 <path to the MipNeRF360 dataset>
+python scripts/m360_eval.py -m60 <path to the MipNeRF360 dataset>
 ```
 
 #### Geometry reconstruction

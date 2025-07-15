@@ -220,7 +220,7 @@ class GaussianExtractor(object):
             else:
                 sdf_trunc = 5 * voxel_size
 
-            tsdfs = torch.ones_like(samples[:,0]) * 1
+            tsdfs = torch.ones_like(samples[:,0]) * (-1)
             rgbs = torch.zeros((samples.shape[0], 3)).cuda()
 
             weights = torch.ones_like(samples[:,0])
